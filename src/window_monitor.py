@@ -44,11 +44,14 @@ class WindowMonitor:
         stats: StatsTracker,
         on_item_closed: Optional[Callable[[str, str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        on_admin_needed: Optional[Callable[[str], None]] = None,
     ):
         self._config = config
         self._stats = stats
         self._on_item_closed = on_item_closed
         self._on_error = on_error
+        self._on_admin_needed = on_admin_needed
+        self._admin_hint_sent = False
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -208,17 +211,58 @@ class WindowMonitor:
                 closed += 1
         return closed
 
+    @staticmethod
+    def _is_access_denied(exc: Exception) -> bool:
+        """Erkennt 'Zugriff verweigert'-Fehler (Windows-Fehlercode 5 / UIPI)."""
+        if PLATFORM_SUPPORTED and isinstance(exc, psutil.AccessDenied):
+            return True
+        if getattr(exc, "winerror", None) == 5:
+            return True
+        # pywintypes.error hat den Code als erstes Argument.
+        args = getattr(exc, "args", ())
+        if args and args[0] == 5:
+            return True
+        text = str(exc).lower()
+        return "zugriff verweigert" in text or "access is denied" in text
+
+    def _report_admin_needed(self, label: str) -> None:
+        """
+        Meldet, dass ein Ziel (z. B. der Task-Manager) mit Administrator-
+        Rechten laeuft und deshalb nicht geschlossen werden kann.
+        """
+        message = (
+            f"'{label}' läuft mit Administrator-Rechten und kann nur geschlossen "
+            "werden, wenn AutoCloseV8 selbst als Administrator gestartet wird."
+        )
+        logger.warning(message)
+        if self._on_admin_needed and not self._admin_hint_sent:
+            self._admin_hint_sent = True
+            self._on_admin_needed(label)
+        elif self._on_error:
+            self._on_error(message)
+
     def _close_window(self, hwnd: int, title: str, process_label: Optional[str]) -> bool:
-        """Schliesst ein einzelnes Fenster - zuerst sanft (WM_CLOSE), sonst ueber den Prozess."""
+        """
+        Schliesst ein einzelnes Fenster in mehreren Stufen:
+          1. Sanft per WM_CLOSE (wie ein Klick auf das X).
+          2. Falls das nicht erlaubt/moeglich ist: Prozess beenden (terminate).
+          3. Als letzte Stufe: Prozess erzwingen (kill).
+        Laeuft das Ziel mit Administrator-Rechten, wird ein Hinweis gemeldet.
+        """
         close_method = self._config.get("close_method", "graceful")
         label = process_label or title or f"Fenster #{hwnd}"
 
         try:
             if close_method == "graceful":
-                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                try:
+                    win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                except Exception as exc:
+                    if self._is_access_denied(exc):
+                        raise
+                    # Sanftes Schliessen nicht moeglich -> Prozess beenden.
+                    self._terminate_by_hwnd(hwnd)
             else:
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                psutil.Process(pid).terminate()
+                self._terminate_by_hwnd(hwnd)
 
             logger.info("Geschlossen: %s", label)
             self._stats.record_closed(label, kind="process" if process_label else "window")
@@ -227,8 +271,22 @@ class WindowMonitor:
             return True
 
         except Exception as exc:
+            if self._is_access_denied(exc):
+                self._report_admin_needed(label)
+                return False
             message = f"Konnte '{label}' nicht schliessen: {exc}"
             logger.error(message)
             if self._on_error:
                 self._on_error(message)
             return False
+
+    @staticmethod
+    def _terminate_by_hwnd(hwnd: int) -> None:
+        """Beendet den Prozess hinter einem Fenster (terminate, notfalls kill)."""
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        proc = psutil.Process(pid)
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except psutil.TimeoutExpired:
+            proc.kill()

@@ -100,6 +100,7 @@ class AutoCloseApp(tk.Tk):
             stats=self.stats,
             on_item_closed=self._on_item_closed,
             on_error=self._on_monitor_error,
+            on_admin_needed=self._on_admin_needed,
         )
         self.opener = ProgramOpener(
             config=self.config_manager,
@@ -914,6 +915,55 @@ class AutoCloseApp(tk.Tk):
     def _on_monitor_error(self, message: str) -> None:
         """Wird von den Automatik-Threads bei einem Fehler aufgerufen."""
         self._run_on_ui_thread(lambda: self._set_status(f"Fehler: {message}"))
+
+    def _on_admin_needed(self, label: str) -> None:
+        """
+        Ein Ziel (z. B. der Task-Manager) laeuft mit Administrator-Rechten und
+        kann deshalb nicht geschlossen werden. Kommt aus dem Monitor-Thread.
+        """
+        self._run_on_ui_thread(lambda: self._ask_restart_as_admin(label))
+
+    def _ask_restart_as_admin(self, label: str) -> None:
+        """Fragt den Nutzer, ob AutoCloseV8 als Administrator neu starten soll."""
+        self._set_status(
+            f"'{label}' benötigt Administrator-Rechte - Neustart als Administrator nötig."
+        )
+        if sys.platform != "win32":
+            return
+        answer = messagebox.askyesno(
+            "Administrator-Rechte benötigt",
+            f"'{label}' läuft mit Administrator-Rechten (z. B. der Task-Manager).\n\n"
+            "AutoCloseV8 kann solche Programme nur schließen, wenn es selbst als "
+            "Administrator läuft.\n\n"
+            "AutoCloseV8 jetzt mit Administrator-Rechten neu starten?\n"
+            "(Windows fragt danach einmal um Erlaubnis.)",
+            parent=self,
+        )
+        if answer:
+            self._restart_as_admin()
+
+    def _restart_as_admin(self) -> None:
+        """Startet die Anwendung mit Administrator-Rechten neu (UAC-Abfrage)."""
+        try:
+            import ctypes
+
+            params = " ".join(sys.argv[1:])
+            if getattr(sys, "frozen", False):
+                exe = sys.executable
+                args = params
+            else:
+                exe = sys.executable
+                script = os.path.abspath(sys.argv[0])
+                args = f'"{script}" {params}'.strip()
+
+            result = ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, args, None, 1)
+            if int(result) <= 32:
+                # Nutzer hat die UAC-Abfrage abgebrochen oder Start schlug fehl.
+                self._set_status("Neustart als Administrator wurde abgebrochen.")
+                return
+            self._quit_app()
+        except Exception as exc:
+            self._set_status(f"Neustart als Administrator fehlgeschlagen: {exc}")
 
     def _refresh_status_loop(self) -> None:
         """Gleicht periodisch die Anzeige mit dem echten Zustand ab (Tray/Hotkey)."""
