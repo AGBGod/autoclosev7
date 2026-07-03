@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - tritt nur ausserhalb von Windows auf
 from .config_manager import ConfigManager
 from .stats import StatsTracker
 
-logger = logging.getLogger("AutoCloseV7.Monitor")
+logger = logging.getLogger("AutoCloseV8.Monitor")
 
 
 class WindowMonitor:
@@ -57,7 +57,7 @@ class WindowMonitor:
         if not PLATFORM_SUPPORTED:
             logger.warning(
                 "pywin32/psutil nicht verfuegbar - die Ueberwachung kann auf diesem "
-                "System nicht ausgefuehrt werden. AutoCloseV7 ist fuer Windows konzipiert."
+                "System nicht ausgefuehrt werden. AutoCloseV8 ist fuer Windows konzipiert."
             )
 
     @property

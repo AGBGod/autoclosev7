@@ -1,7 +1,7 @@
 """
 gui.py
 -------
-Grafische Benutzeroberflaeche (GUI) von AutoCloseV7 im klassischen Windows-Look
+Grafische Benutzeroberflaeche (GUI) von AutoCloseV8 im klassischen Windows-Look
 (angelehnt an AutoCloseV4).
 
 Aufbau:
@@ -49,7 +49,7 @@ from .tray import TrayIcon
 from .updater import UpdateChecker
 from .window_monitor import PLATFORM_SUPPORTED, WindowMonitor
 
-logger = logging.getLogger("AutoCloseV7.GUI")
+logger = logging.getLogger("AutoCloseV8.GUI")
 
 # Umrechnungsfaktoren der Intervall-Einheiten in Sekunden.
 UNIT_FACTORS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
@@ -72,7 +72,7 @@ class AutoCloseApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("AutoCloseV7")
+        self.title("AutoCloseV8")
         self.geometry("760x600")
         self.minsize(640, 520)
 

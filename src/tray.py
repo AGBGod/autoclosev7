@@ -1,7 +1,7 @@
 """
 tray.py
 --------
-System-Tray-Symbol fuer AutoCloseV7. Ermoeglicht es, die Anwendung zu
+System-Tray-Symbol fuer AutoCloseV8. Ermoeglicht es, die Anwendung zu
 minimieren, ohne die Ueberwachung zu beenden, und bietet ein Kontextmenue mit
 Schnellzugriffen (Anzeigen, Start/Stop, Beenden).
 """
@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - tritt nur ausserhalb von Windows auf
     PLATFORM_SUPPORTED = False
 
-logger = logging.getLogger("AutoCloseV7.Tray")
+logger = logging.getLogger("AutoCloseV8.Tray")
 
 
 def _build_icon_image(active: bool):
@@ -63,9 +63,9 @@ class TrayIcon:
             )
             return
         self._icon = pystray.Icon(
-            "AutoCloseV7",
+            "AutoCloseV8",
             icon=_build_icon_image(self._is_running()),
-            title="AutoCloseV7",
+            title="AutoCloseV8",
             menu=self._menu(),
         )
         self._thread = threading.Thread(target=self._icon.run, name="TrayIconThread", daemon=True)

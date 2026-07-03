@@ -1,10 +1,10 @@
-# AutoCloseV7
+# AutoCloseV8
 
 Ein Windows-Programm, das automatisch bestimmte Pop-up-Fenster oder Anwendungen
 erkennt und schliesst. Mit modernem Dark-Mode-Interface, Tray-Icon, Autostart,
 globalem Hotkey und einfacher Statistik.
 
-> **Wichtig:** AutoCloseV7 nutzt Windows-spezifische Funktionen (Fenster-API,
+> **Wichtig:** AutoCloseV8 nutzt Windows-spezifische Funktionen (Fenster-API,
 > Registry, Tray-Icon) und funktioniert daher **nur unter Windows** (10/11).
 
 ## Funktionsumfang
@@ -26,19 +26,19 @@ globalem Hotkey und einfacher Statistik.
 ## Schnellstart: Einfach die .exe starten (empfohlen)
 
 **Es ist keine Python-Installation noetig.** Einfach die Datei
-`AutoCloseV7.exe` per Doppelklick starten - fertig.
+`AutoCloseV8.exe` per Doppelklick starten - fertig.
 
 - Die .exe ist eigenstaendig und kann beliebig kopiert werden (Desktop,
   USB-Stick, anderer Rechner mit Windows 10/11).
 - Einstellungen und Logs werden automatisch unter
-  `%APPDATA%\AutoCloseV7` gespeichert (z. B.
-  `C:\Users\<Name>\AppData\Roaming\AutoCloseV7`), damit sie unabhaengig vom
+  `%APPDATA%\AutoCloseV8` gespeichert (z. B.
+  `C:\Users\<Name>\AppData\Roaming\AutoCloseV8`), damit sie unabhaengig vom
   Speicherort der .exe erhalten bleiben.
 - Beim ersten Start meldet sich ggf. der Windows SmartScreen-Filter
   ("Unbekannter Herausgeber"). In dem Fall auf **"Weitere Informationen" →
   "Trotzdem ausfuehren"** klicken.
 
-Falls noch keine `AutoCloseV7.exe` vorliegt, siehe Abschnitt
+Falls noch keine `AutoCloseV8.exe` vorliegt, siehe Abschnitt
 [".exe selbst bauen"](#exe-selbst-bauen-fuer-entwickler) weiter unten.
 
 ## Installation aus dem Quellcode (nur fuer Entwickler)
@@ -48,7 +48,7 @@ Falls noch keine `AutoCloseV7.exe` vorliegt, siehe Abschnitt
    die Option "Add Python to PATH" aktivieren.
 
 2. **Projekt herunterladen** und in einen beliebigen Ordner entpacken, z. B.
-   `C:\Tools\AutoCloseV7`.
+   `C:\Tools\AutoCloseV8`.
 
 3. **Abhaengigkeiten installieren** – in diesem Ordner ein Terminal (PowerShell
    oder CMD) oeffnen und ausfuehren:
@@ -61,7 +61,7 @@ Falls noch keine `AutoCloseV7.exe` vorliegt, siehe Abschnitt
 
 1. Anwendung starten:
 
-   - **Als .exe:** Doppelklick auf `AutoCloseV7.exe`.
+   - **Als .exe:** Doppelklick auf `AutoCloseV8.exe`.
    - **Aus dem Quellcode:**
 
      ```
@@ -77,7 +77,7 @@ Falls noch keine `AutoCloseV7.exe` vorliegt, siehe Abschnitt
    - Das **Pruefintervall** (in Sekunden) bestimmt, wie oft nach passenden
      Fenstern gesucht wird. Kleinere Werte reagieren schneller, groessere Werte
      schonen CPU/RAM.
-   - Ueber die Checkbox **"Mit Windows starten"** wird AutoCloseV7 automatisch
+   - Ueber die Checkbox **"Mit Windows starten"** wird AutoCloseV8 automatisch
      beim Windows-Start mitgestartet.
    - Der Standard-Hotkey `Strg + Alt + P` schaltet die Ueberwachung jederzeit
      ein oder aus, auch wenn das Fenster nicht im Vordergrund ist (Hotkey in
@@ -91,7 +91,7 @@ Falls noch keine `AutoCloseV7.exe` vorliegt, siehe Abschnitt
 
 ## .exe selbst bauen (fuer Entwickler)
 
-Die eigenstaendige `AutoCloseV7.exe` wird mit [PyInstaller](https://pyinstaller.org)
+Die eigenstaendige `AutoCloseV8.exe` wird mit [PyInstaller](https://pyinstaller.org)
 erstellt. Der Build muss **auf einem Windows-Rechner** ausgefuehrt werden
 (PyInstaller kann keine Windows-.exe unter Linux/macOS erzeugen).
 
@@ -101,27 +101,27 @@ erstellt. Der Build muss **auf einem Windows-Rechner** ausgefuehrt werden
 2. Doppelklick auf `build.bat`.
 
 Das Skript installiert automatisch alle Abhaengigkeiten inkl. PyInstaller und
-erstellt die fertige Datei unter **`dist\AutoCloseV7.exe`**.
+erstellt die fertige Datei unter **`dist\AutoCloseV8.exe`**.
 
 **Variante 2 - manuell im Terminal:**
 
 ```
 pip install -r requirements.txt pyinstaller
-pyinstaller --noconfirm --clean AutoCloseV7.spec
+pyinstaller --noconfirm --clean AutoCloseV8.spec
 ```
 
-Die Datei `AutoCloseV7.spec` enthaelt die komplette Build-Konfiguration
+Die Datei `AutoCloseV8.spec` enthaelt die komplette Build-Konfiguration
 (einzelne Datei, kein Konsolenfenster, alle benoetigten Module wie
 `pystray`, `keyboard` und die Windows-API-Module).
 
 Hinweise:
 
-- Die fertige `dist\AutoCloseV7.exe` ist die **einzige Datei**, die
+- Die fertige `dist\AutoCloseV8.exe` ist die **einzige Datei**, die
   weitergegeben werden muss. Sie laeuft ohne Python auf jedem
   Windows-10/11-Rechner (Tray-Icon, Autostart, Hotkey und
   Konfigurationsspeicherung funktionieren wie gewohnt).
 - Als .exe speichert die Anwendung `config.json` und `logs\` unter
-  `%APPDATA%\AutoCloseV7` (beim Start aus dem Quellcode wie bisher im
+  `%APPDATA%\AutoCloseV8` (beim Start aus dem Quellcode wie bisher im
   Projektordner). So funktioniert auch der Windows-Autostart zuverlaessig,
   egal von wo die .exe gestartet wird.
 - Der Autostart-Eintrag in der Registry zeigt automatisch auf die .exe
@@ -160,9 +160,9 @@ autoclosev7/
 ├── main.py                 # Einstiegspunkt
 ├── config.json              # Standardkonfiguration
 ├── requirements.txt          # Python-Abhaengigkeiten
-├── AutoCloseV7.spec           # PyInstaller-Build-Konfiguration (.exe)
-├── build.bat                  # Ein-Klick-Build der AutoCloseV7.exe (Windows)
-├── dist/                      # Wird beim Build erstellt (enthaelt AutoCloseV7.exe)
+├── AutoCloseV8.spec           # PyInstaller-Build-Konfiguration (.exe)
+├── build.bat                  # Ein-Klick-Build der AutoCloseV8.exe (Windows)
+├── dist/                      # Wird beim Build erstellt (enthaelt AutoCloseV8.exe)
 ├── logs/                     # Wird automatisch erstellt (Logdateien)
 └── src/
     ├── paths.py               # Zentrale Pfad-Logik (Skript vs. gepackte .exe)
@@ -195,7 +195,7 @@ autoclosev7/
   oder eine Ausnahme hinzufuegen.
 - Detaillierte Fehlermeldungen finden sich immer in der Logdatei
   `autoclosev7.log`:
-  - **Als .exe:** `%APPDATA%\AutoCloseV7\logs\autoclosev7.log`
+  - **Als .exe:** `%APPDATA%\AutoCloseV8\logs\autoclosev7.log`
   - **Aus dem Quellcode:** `logs/autoclosev7.log` im Projektordner
 
 ## Geplante Erweiterungen (vorbereitet, noch nicht aktiv)

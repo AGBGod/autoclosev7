@@ -19,14 +19,17 @@ try:
 except ImportError:  # pragma: no cover - tritt nur ausserhalb von Windows auf
     PLATFORM_SUPPORTED = False
 
-logger = logging.getLogger("AutoCloseV7.Autostart")
+logger = logging.getLogger("AutoCloseV8.Autostart")
 
 REGISTRY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-APP_NAME = "AutoCloseV7"
+APP_NAME = "AutoCloseV8"
+# Alter Eintragsname aus frueheren Versionen - wird automatisch entfernt,
+# damit nicht zwei Versionen gleichzeitig starten.
+LEGACY_APP_NAMES = ("AutoCloseV7",)
 
 
 class AutostartManager:
-    """Aktiviert/deaktiviert den automatischen Start von AutoCloseV7 mit Windows."""
+    """Aktiviert/deaktiviert den automatischen Start von AutoCloseV8 mit Windows."""
 
     @staticmethod
     def _get_executable_command() -> str:
@@ -59,8 +62,23 @@ class AutostartManager:
             logger.error("Fehler beim Pruefen des Autostart-Status: %s", exc)
             return False
 
+    @staticmethod
+    def _remove_legacy_entries() -> None:
+        """Entfernt Autostart-Eintraege aelterer Versionen (z. B. AutoCloseV7)."""
+        for legacy_name in LEGACY_APP_NAMES:
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_SET_VALUE
+                ) as key:
+                    winreg.DeleteValue(key, legacy_name)
+                logger.info("Alten Autostart-Eintrag entfernt: %s", legacy_name)
+            except FileNotFoundError:
+                pass  # Kein alter Eintrag vorhanden.
+            except OSError as exc:
+                logger.debug("Alter Eintrag '%s' nicht entfernbar: %s", legacy_name, exc)
+
     def enable(self) -> bool:
-        """Traegt AutoCloseV7 in den Windows-Autostart ein."""
+        """Traegt AutoCloseV8 in den Windows-Autostart ein."""
         if not PLATFORM_SUPPORTED:
             logger.warning("Autostart wird nur unter Windows unterstuetzt.")
             return False
@@ -70,6 +88,7 @@ class AutostartManager:
                 winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_SET_VALUE
             ) as key:
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, command)
+            self._remove_legacy_entries()
             logger.info("Autostart aktiviert (%s).", command)
             return True
         except OSError as exc:
@@ -77,7 +96,7 @@ class AutostartManager:
             return False
 
     def disable(self) -> bool:
-        """Entfernt AutoCloseV7 aus dem Windows-Autostart."""
+        """Entfernt AutoCloseV8 aus dem Windows-Autostart."""
         if not PLATFORM_SUPPORTED:
             return False
         try:
@@ -85,9 +104,11 @@ class AutostartManager:
                 winreg.HKEY_CURRENT_USER, REGISTRY_PATH, 0, winreg.KEY_SET_VALUE
             ) as key:
                 winreg.DeleteValue(key, APP_NAME)
+            self._remove_legacy_entries()
             logger.info("Autostart deaktiviert.")
             return True
         except FileNotFoundError:
+            self._remove_legacy_entries()
             return True  # War bereits deaktiviert.
         except OSError as exc:
             logger.error("Autostart konnte nicht deaktiviert werden: %s", exc)

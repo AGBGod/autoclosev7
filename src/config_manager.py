@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from src.paths import get_config_path
 
-logger = logging.getLogger("AutoCloseV7.Config")
+logger = logging.getLogger("AutoCloseV8.Config")
 
 # Standardwerte fuer eine Automatik-Sektion (OPEN bzw. CLOSE).
 DEFAULT_AUTO_SECTION: Dict[str, Any] = {
@@ -55,7 +55,7 @@ class ConfigManager:
 
     def __init__(self, config_path: Optional[str] = None):
         # Standard: fester, beschreibbarer Pfad (unabhaengig vom Arbeitsverzeichnis).
-        # Als .exe: %APPDATA%\AutoCloseV7\config.json - als Skript: Projektordner.
+        # Als .exe: %APPDATA%\AutoCloseV8\config.json - als Skript: Projektordner.
         self._config_path = config_path or get_config_path()
         self._lock = threading.RLock()
         self._data: Dict[str, Any] = {}

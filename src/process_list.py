@@ -26,7 +26,7 @@ try:
 except ImportError:  # pragma: no cover
     WIN32_AVAILABLE = False
 
-logger = logging.getLogger("AutoCloseV7.ProcessList")
+logger = logging.getLogger("AutoCloseV8.ProcessList")
 
 
 def list_open_windows() -> List[str]:
