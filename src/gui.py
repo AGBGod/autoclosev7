@@ -42,7 +42,12 @@ from tkinter import filedialog, messagebox
 from .autostart import AutostartManager
 from .config_manager import ConfigManager
 from .hotkey import HotkeyManager
-from .process_list import list_open_windows, list_running_programs
+from .process_list import (
+    list_installed_apps,
+    list_open_windows,
+    list_running_programs,
+    resolve_shortcut_target,
+)
 from .program_opener import ProgramOpener
 from .stats import StatsTracker
 from .tray import TrayIcon
@@ -170,8 +175,14 @@ class AutoCloseApp(tk.Tk):
 
         open_buttons = tk.Frame(open_row)
         open_buttons.pack(side="right", fill="y", padx=(8, 0))
+        tk.Label(open_buttons, text="Apps").pack(pady=(6, 0))
+        tk.Button(open_buttons, text="+", width=8, command=self._add_open_app).pack(
+            pady=(0, 2)
+        )
+        tk.Button(open_buttons, text="-", width=8, command=self._remove_open_program).pack()
+        tk.Label(open_buttons, text="Task-Manager").pack(pady=(10, 0))
         tk.Button(open_buttons, text="+", width=8, command=self._add_open_program).pack(
-            pady=(16, 4)
+            pady=(0, 2)
         )
         tk.Button(open_buttons, text="-", width=8, command=self._remove_open_program).pack()
 
@@ -189,8 +200,14 @@ class AutoCloseApp(tk.Tk):
 
         close_buttons = tk.Frame(close_row)
         close_buttons.pack(side="right", fill="y", padx=(8, 0))
+        tk.Label(close_buttons, text="Apps").pack(pady=(6, 0))
+        tk.Button(close_buttons, text="+", width=8, command=self._add_close_app).pack(
+            pady=(0, 2)
+        )
+        tk.Button(close_buttons, text="-", width=8, command=self._remove_close_target).pack()
+        tk.Label(close_buttons, text="Task-Manager").pack(pady=(10, 0))
         tk.Button(close_buttons, text="+", width=8, command=self._add_close_target).pack(
-            pady=(16, 4)
+            pady=(0, 2)
         )
         tk.Button(close_buttons, text="-", width=8, command=self._remove_close_target).pack()
 
@@ -419,6 +436,114 @@ class AutoCloseApp(tk.Tk):
         self.config_manager.remove_open_program(entry)
         self._reload_lists()
         self._set_status(f"Entfernt: {os.path.basename(entry)}")
+
+    def _show_app_picker(self, title: str, on_pick) -> None:
+        """
+        Gemeinsamer Auswahl-Dialog fuer "normale" installierte Apps
+        (aus dem Windows-Startmenue), mit Suchfeld.
+
+        `on_pick(name, lnk_path)` wird beim Doppelklick aufgerufen.
+        """
+        dialog = tk.Toplevel(self)
+        dialog.title(title)
+        dialog.geometry("540x560")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        tk.Label(dialog, text="Installierte Apps (Doppelklick zum Hinzufügen):").pack(
+            anchor="w", padx=8, pady=(8, 0)
+        )
+
+        # --- Suchfeld -----------------------------------------------------
+        search_row = tk.Frame(dialog)
+        search_row.pack(fill="x", padx=8, pady=(4, 0))
+        tk.Label(search_row, text="Suchen:").pack(side="left")
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(search_row, textvariable=search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=4)
+        search_entry.focus_set()
+
+        # --- Liste der Apps -------------------------------------------------
+        apps_box = tk.Listbox(dialog, bg="white", activestyle="none")
+        apps_box.pack(fill="both", expand=True, padx=8, pady=(4, 0))
+
+        all_apps: list = []
+        shown_apps: list = []
+
+        def apply_filter(*_args):
+            term = search_var.get().strip().lower()
+            shown_apps.clear()
+            apps_box.delete(0, tk.END)
+            for name, lnk_path in all_apps:
+                if term and term not in name.lower():
+                    continue
+                shown_apps.append((name, lnk_path))
+                apps_box.insert(tk.END, name)
+            if not shown_apps:
+                apps_box.insert(
+                    tk.END,
+                    "(keine Einträge - nur unter Windows verfügbar)"
+                    if not all_apps
+                    else "(keine Treffer)",
+                )
+
+        def refresh_apps():
+            all_apps.clear()
+            all_apps.extend(list_installed_apps())
+            apply_filter()
+
+        search_var.trace_add("write", apply_filter)
+        refresh_apps()
+
+        def add_selected(_event=None):
+            selection = apps_box.curselection()
+            if not selection or selection[0] >= len(shown_apps):
+                return
+            name, lnk_path = shown_apps[selection[0]]
+            on_pick(name, lnk_path)
+
+        apps_box.bind("<Double-Button-1>", add_selected)
+
+        # --- Untere Knopfleiste ----------------------------------------------
+        button_row = tk.Frame(dialog)
+        button_row.pack(pady=8)
+        tk.Button(button_row, text="Hinzufügen", command=add_selected).pack(
+            side="left", padx=4
+        )
+        tk.Button(button_row, text="Aktualisieren", command=refresh_apps).pack(
+            side="left", padx=4
+        )
+        tk.Button(button_row, text="Fertig", command=dialog.destroy).pack(side="left", padx=4)
+
+    def _add_open_app(self) -> None:
+        """'+'-Knopf (Apps) bei OPEN: installierte App auswaehlen und hinzufuegen."""
+
+        def on_pick(name: str, lnk_path: str) -> None:
+            self.config_manager.add_open_program(lnk_path)
+            self._reload_lists()
+            self._set_status(f"Hinzugefügt: {name}")
+
+        self._show_app_picker("App für OPEN hinzufügen", on_pick)
+
+    def _add_close_app(self) -> None:
+        """
+        '+'-Knopf (Apps) bei CLOSE: installierte App auswaehlen. Es wird der
+        Prozessname der App (z. B. chrome.exe) in die CLOSE-Liste eingetragen;
+        falls der nicht ermittelbar ist, der App-Name als Fenstertitel.
+        """
+
+        def on_pick(name: str, lnk_path: str) -> None:
+            exe_name = resolve_shortcut_target(lnk_path)
+            if exe_name:
+                self.config_manager.add_process_name(exe_name)
+                self._reload_lists()
+                self._set_status(f"Hinzugefügt: {name} ({exe_name})")
+            else:
+                self.config_manager.add_window_title(name)
+                self._reload_lists()
+                self._set_status(f"Hinzugefügt: {name}")
+
+        self._show_app_picker("App für CLOSE hinzufügen", on_pick)
 
     def _add_close_target(self) -> None:
         """
