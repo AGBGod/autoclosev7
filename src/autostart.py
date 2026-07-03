@@ -30,13 +30,18 @@ class AutostartManager:
 
     @staticmethod
     def _get_executable_command() -> str:
-        """Ermittelt den Befehl, mit dem die Anwendung beim Systemstart gestartet werden soll."""
+        """
+        Ermittelt den Befehl, mit dem die Anwendung beim Systemstart gestartet
+        werden soll. Der Parameter --autostart signalisiert der App, dass sie
+        von Windows (nach einem Neustart) gestartet wurde - so koennen die
+        "nach Neustart"-Automatiken gezielt aktiviert werden.
+        """
         if getattr(sys, "frozen", False):
             # Als .exe gepackt (z. B. mit PyInstaller).
-            return f'"{sys.executable}"'
+            return f'"{sys.executable}" --autostart'
         # Als Python-Skript gestartet.
         script_path = os.path.abspath(sys.argv[0])
-        return f'"{sys.executable}" "{script_path}"'
+        return f'"{sys.executable}" "{script_path}" --autostart'
 
     def is_enabled(self) -> bool:
         """Prueft, ob der Autostart-Eintrag aktuell in der Registry vorhanden ist."""

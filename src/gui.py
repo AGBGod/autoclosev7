@@ -5,10 +5,10 @@ Grafische Benutzeroberflaeche (GUI) von AutoCloseV7 im klassischen Windows-Look
 (angelehnt an AutoCloseV4).
 
 Aufbau:
-  - Liste "Programme fuer OPEN"  mit [+]/[-] Knoepfen (Programme, die per
-    Open-Knopf gestartet werden)
-  - Liste "Programme fuer CLOSE" mit [+]/[-] Knoepfen (Fenstertitel oder
-    Prozessnamen, die geschlossen werden sollen)
+  - Liste "Programme fuer OPEN"  mit [+]/[-] Knoepfen und eigener
+    Automatik-Zeile (Auto an/aus, Intervall ms/s/m/h, nach Start, nach Neustart)
+  - Liste "Programme fuer CLOSE" mit [+]/[-] Knoepfen und eigener
+    Automatik-Zeile (gleiche Optionen, getrennt einstellbar)
   - Knopfleiste unten: Open | Close | ActivateAuto | AutoClose
   - Statuszeile am unteren Rand
 
@@ -17,9 +17,17 @@ Die Knoepfe:
                   (ohne Markierung: alle Programme der Liste)
   - Close:        schliesst das markierte Ziel der CLOSE-Liste sofort
                   (ohne Markierung: alle Ziele der Liste)
-  - ActivateAuto: schaltet die automatische Dauerueberwachung ein/aus
-                  (laeuft im Hintergrund und schliesst Ziele automatisch)
+  - ActivateAuto: schaltet BEIDE Automatiken (OPEN + CLOSE) ein/aus
   - AutoClose:    schliesst sofort alle Ziele der CLOSE-Liste (ein Durchlauf)
+
+Die Automatiken:
+  - OPEN-Automatik:  prueft im eingestellten Intervall, ob die Programme der
+                     OPEN-Liste laufen - fehlende werden automatisch gestartet.
+  - CLOSE-Automatik: prueft im eingestellten Intervall, ob Ziele der
+                     CLOSE-Liste auftauchen - Treffer werden geschlossen.
+  - "nach Start":    Automatik ist sofort aktiv, wenn das Programm geoeffnet wird.
+  - "nach Neustart": Programm wird in den Windows-Autostart eingetragen und die
+                     Automatik ist nach einem PC-Neustart sofort aktiv.
 """
 
 import logging
@@ -34,12 +42,16 @@ from tkinter import filedialog, messagebox, simpledialog
 from .autostart import AutostartManager
 from .config_manager import ConfigManager
 from .hotkey import HotkeyManager
+from .program_opener import ProgramOpener
 from .stats import StatsTracker
 from .tray import TrayIcon
 from .updater import UpdateChecker
 from .window_monitor import PLATFORM_SUPPORTED, WindowMonitor
 
 logger = logging.getLogger("AutoCloseV7.GUI")
+
+# Umrechnungsfaktoren der Intervall-Einheiten in Sekunden.
+UNIT_FACTORS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 
 
 class AutoCloseApp(tk.Tk):
@@ -49,13 +61,13 @@ class AutoCloseApp(tk.Tk):
         super().__init__()
 
         self.title("AutoCloseV7")
-        self.geometry("720x540")
-        self.minsize(600, 460)
+        self.geometry("760x600")
+        self.minsize(640, 520)
 
         # --- UI-Warteschlange ----------------------------------------------
         # tkinter ist nicht thread-sicher. Alle Aktionen, die von fremden
         # Threads ausgeloest werden (Tray-Menue, globaler Hotkey,
-        # Ueberwachungs-Thread), landen in dieser Warteschlange und werden
+        # Automatik-Threads), landen in dieser Warteschlange und werden
         # periodisch im GUI-Thread abgearbeitet (siehe _process_ui_queue).
         self._ui_queue: "queue.Queue" = queue.Queue()
 
@@ -72,6 +84,11 @@ class AutoCloseApp(tk.Tk):
             on_item_closed=self._on_item_closed,
             on_error=self._on_monitor_error,
         )
+        self.opener = ProgramOpener(
+            config=self.config_manager,
+            on_opened=self._on_program_opened,
+            on_error=self._on_monitor_error,
+        )
 
         # Tray-Callbacks kommen aus dem Tray-Thread - nur in die Warteschlange
         # legen, niemals direkt Tk-Methoden aufrufen.
@@ -79,7 +96,7 @@ class AutoCloseApp(tk.Tk):
             on_toggle=lambda: self._run_on_ui_thread(self._toggle_monitoring),
             on_show=lambda: self._run_on_ui_thread(self._restore_from_tray),
             on_quit=lambda: self._run_on_ui_thread(self._quit_app),
-            is_running=lambda: self.monitor.is_running,
+            is_running=lambda: self.monitor.is_running or self.opener.is_running,
         )
 
         self._build_layout()
@@ -92,8 +109,7 @@ class AutoCloseApp(tk.Tk):
                 "Warnung: Windows-Funktionen sind auf diesem System nicht verfuegbar."
             )
 
-        if self.config_manager.get("monitoring_enabled_on_start", False):
-            self._toggle_monitoring(force_start=True)
+        self._activate_on_startup()
 
         self.tray.start()
         self._process_ui_queue()
@@ -130,12 +146,12 @@ class AutoCloseApp(tk.Tk):
     # Layout (klassischer heller V4-Look)
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """Baut das Fenster auf: zwei Listen mit +/- und die Knopfleiste unten."""
+        """Baut das Fenster auf: zwei Listen mit +/- , Automatik-Zeilen, Knopfleiste."""
         # --- Bereich "Programme fuer OPEN" -----------------------------------
         tk.Label(self, text="Programme für OPEN").pack(pady=(8, 0))
 
         open_row = tk.Frame(self)
-        open_row.pack(fill="both", expand=True, padx=8, pady=(2, 4))
+        open_row.pack(fill="both", expand=True, padx=8, pady=(2, 0))
 
         self.open_listbox = tk.Listbox(open_row, bg="white", activestyle="none")
         self.open_listbox.pack(side="left", fill="both", expand=True)
@@ -147,11 +163,14 @@ class AutoCloseApp(tk.Tk):
         )
         tk.Button(open_buttons, text="-", width=8, command=self._remove_open_program).pack()
 
+        # Automatik-Zeile fuer OPEN
+        self.open_vars = self._build_auto_row("open_auto", "OPEN-Automatik")
+
         # --- Bereich "Programme fuer CLOSE" ----------------------------------
-        tk.Label(self, text="Programme für CLOSE").pack()
+        tk.Label(self, text="Programme für CLOSE").pack(pady=(6, 0))
 
         close_row = tk.Frame(self)
-        close_row.pack(fill="both", expand=True, padx=8, pady=(2, 4))
+        close_row.pack(fill="both", expand=True, padx=8, pady=(2, 0))
 
         self.close_listbox = tk.Listbox(close_row, bg="white", activestyle="none")
         self.close_listbox.pack(side="left", fill="both", expand=True)
@@ -163,9 +182,12 @@ class AutoCloseApp(tk.Tk):
         )
         tk.Button(close_buttons, text="-", width=8, command=self._remove_close_target).pack()
 
+        # Automatik-Zeile fuer CLOSE
+        self.close_vars = self._build_auto_row("close_auto", "CLOSE-Automatik")
+
         # --- Knopfleiste ------------------------------------------------------
         button_row = tk.Frame(self)
-        button_row.pack(pady=10)
+        button_row.pack(pady=8)
 
         tk.Button(button_row, text="Open", width=10, command=self._open_programs).pack(
             side="left", padx=6
@@ -181,55 +203,6 @@ class AutoCloseApp(tk.Tk):
             side="left", padx=6
         )
 
-        # --- Einstellungen fuer die Automatik --------------------------------
-        settings_row = tk.Frame(self)
-        settings_row.pack(pady=(0, 6))
-
-        tk.Label(settings_row, text="Prüfen alle:").pack(side="left")
-
-        self.interval_value_var = tk.StringVar(
-            value=self._format_number(self.config_manager.get("check_interval_value", 2.0))
-        )
-        interval_entry = tk.Entry(settings_row, textvariable=self.interval_value_var, width=6)
-        interval_entry.pack(side="left", padx=(4, 2))
-        interval_entry.bind("<Return>", lambda _e: self._apply_interval())
-        interval_entry.bind("<FocusOut>", lambda _e: self._apply_interval())
-
-        self.interval_unit_var = tk.StringVar(
-            value=self.config_manager.get("check_interval_unit", "s")
-        )
-        unit_menu = tk.OptionMenu(
-            settings_row,
-            self.interval_unit_var,
-            "ms",
-            "s",
-            "m",
-            "h",
-            command=lambda _v: self._apply_interval(),
-        )
-        unit_menu.configure(width=3)
-        unit_menu.pack(side="left", padx=(0, 12))
-
-        self.auto_on_start_var = tk.BooleanVar(
-            value=bool(self.config_manager.get("monitoring_enabled_on_start", False))
-        )
-        tk.Checkbutton(
-            settings_row,
-            text="Automatik nach Start",
-            variable=self.auto_on_start_var,
-            command=self._apply_auto_on_start,
-        ).pack(side="left", padx=(0, 12))
-
-        self.autostart_var = tk.BooleanVar(
-            value=bool(self.config_manager.get("autostart_enabled", False))
-        )
-        tk.Checkbutton(
-            settings_row,
-            text="Mit Windows starten (nach Neustart)",
-            variable=self.autostart_var,
-            command=self._apply_autostart,
-        ).pack(side="left")
-
         # --- Statuszeile ------------------------------------------------------
         self.status_var = tk.StringVar(value="Bereit")
         tk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken").pack(
@@ -237,6 +210,70 @@ class AutoCloseApp(tk.Tk):
         )
 
         self._reload_lists()
+
+    def _build_auto_row(self, section_key: str, label: str) -> dict:
+        """
+        Baut eine Automatik-Einstellungszeile fuer eine Sektion (OPEN oder CLOSE)
+        und liefert die zugehoerigen Variablen zurueck.
+        """
+        section = self.config_manager.get_auto_section(section_key)
+
+        row = tk.Frame(self)
+        row.pack(padx=8, pady=(2, 4))
+
+        active_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            row,
+            text="Auto",
+            variable=active_var,
+            command=lambda: self._toggle_section_auto(section_key),
+        ).pack(side="left")
+
+        tk.Label(row, text="prüfen alle:").pack(side="left", padx=(6, 2))
+
+        value_var = tk.StringVar(value=self._format_number(section.get("interval_value", 2.0)))
+        entry = tk.Entry(row, textvariable=value_var, width=6)
+        entry.pack(side="left", padx=(0, 2))
+        entry.bind("<Return>", lambda _e: self._apply_section_interval(section_key))
+        entry.bind("<FocusOut>", lambda _e: self._apply_section_interval(section_key))
+
+        unit_var = tk.StringVar(value=section.get("interval_unit", "s"))
+        unit_menu = tk.OptionMenu(
+            row,
+            unit_var,
+            "ms",
+            "s",
+            "m",
+            "h",
+            command=lambda _v: self._apply_section_interval(section_key),
+        )
+        unit_menu.configure(width=3)
+        unit_menu.pack(side="left", padx=(0, 10))
+
+        after_start_var = tk.BooleanVar(value=bool(section.get("after_start", False)))
+        tk.Checkbutton(
+            row,
+            text="nach Start",
+            variable=after_start_var,
+            command=lambda: self._apply_section_flags(section_key),
+        ).pack(side="left", padx=(0, 8))
+
+        after_restart_var = tk.BooleanVar(value=bool(section.get("after_restart", False)))
+        tk.Checkbutton(
+            row,
+            text="nach Neustart",
+            variable=after_restart_var,
+            command=lambda: self._apply_section_flags(section_key),
+        ).pack(side="left")
+
+        return {
+            "label": label,
+            "active": active_var,
+            "value": value_var,
+            "unit": unit_var,
+            "after_start": after_start_var,
+            "after_restart": after_restart_var,
+        }
 
     # ------------------------------------------------------------------
     # Listenpflege
@@ -359,7 +396,7 @@ class AutoCloseApp(tk.Tk):
         self._set_status(f"AutoClose: {closed} Fenster/Programm(e) geschlossen.")
 
     # ------------------------------------------------------------------
-    # Automatik-Einstellungen (Intervall + Startverhalten)
+    # Automatik-Einstellungen (getrennt fuer OPEN und CLOSE)
     # ------------------------------------------------------------------
     @staticmethod
     def _format_number(value) -> str:
@@ -372,10 +409,19 @@ class AutoCloseApp(tk.Tk):
             return str(int(number))
         return str(number)
 
-    def _apply_interval(self) -> None:
-        """Liest Wert + Einheit, rechnet in Sekunden um und speichert das Intervall."""
-        raw = self.interval_value_var.get().strip().replace(",", ".")
-        unit = self.interval_unit_var.get()
+    def _section_vars(self, section_key: str) -> dict:
+        """Liefert die GUI-Variablen der Sektion ('open_auto' oder 'close_auto')."""
+        return self.open_vars if section_key == "open_auto" else self.close_vars
+
+    def _section_automation(self, section_key: str):
+        """Liefert die Automatik der Sektion (Opener bzw. Monitor)."""
+        return self.opener if section_key == "open_auto" else self.monitor
+
+    def _apply_section_interval(self, section_key: str) -> None:
+        """Liest Wert + Einheit einer Sektion, rechnet in Sekunden um und speichert."""
+        vars_ = self._section_vars(section_key)
+        raw = vars_["value"].get().strip().replace(",", ".")
+        unit = vars_["unit"].get()
         try:
             value = float(raw)
         except ValueError:
@@ -385,76 +431,141 @@ class AutoCloseApp(tk.Tk):
             self._set_status("Das Intervall muss größer als 0 sein.")
             return
 
-        factor = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}.get(unit, 1.0)
-        seconds = value * factor
-
+        seconds = value * UNIT_FACTORS.get(unit, 1.0)
         clamped = False
         if seconds < 0.2:
             seconds = 0.2
             clamped = True
 
-        self.config_manager.set("check_interval_value", value, autosave=False)
-        self.config_manager.set("check_interval_unit", unit, autosave=False)
-        self.config_manager.set("check_interval_seconds", seconds)
+        self.config_manager.set_auto_section(
+            section_key,
+            interval_value=value,
+            interval_unit=unit,
+            interval_seconds=seconds,
+        )
+        # Rueckwaerts-Kompatibilitaet: der CLOSE-Monitor liest weiterhin den
+        # alten Schluessel check_interval_seconds.
+        if section_key == "close_auto":
+            self.config_manager.set("check_interval_seconds", seconds)
 
         # Laeuft die Automatik gerade, kurz neu starten, damit das neue
         # Intervall sofort gilt (sonst wuerde erst der alte Wartezyklus enden).
-        if self.monitor.is_running:
-            self.monitor.stop()
-            self.monitor.start()
+        automation = self._section_automation(section_key)
+        if automation.is_running:
+            automation.stop()
+            automation.start()
 
         pretty = f"{self._format_number(value)} {unit}"
+        name = vars_["label"]
         if clamped:
             self._set_status(
-                f"Intervall gespeichert: {pretty} (Minimum ist 200 ms - es gilt 200 ms)."
+                f"{name}: Intervall {pretty} gespeichert (Minimum ist 200 ms - es gilt 200 ms)."
             )
         else:
-            self._set_status(f"Automatik prüft jetzt alle {pretty}.")
+            self._set_status(f"{name}: prüft jetzt alle {pretty}.")
 
-    def _apply_auto_on_start(self) -> None:
-        """Speichert, ob die Automatik beim Programmstart sofort aktiv sein soll."""
-        enabled = bool(self.auto_on_start_var.get())
-        self.config_manager.set("monitoring_enabled_on_start", enabled)
-        if enabled:
-            self._set_status("Automatik startet künftig automatisch beim Programmstart.")
-        else:
-            self._set_status("Automatik startet nicht mehr automatisch beim Programmstart.")
+    def _apply_section_flags(self, section_key: str) -> None:
+        """Speichert 'nach Start' / 'nach Neustart' einer Sektion und pflegt den Autostart."""
+        vars_ = self._section_vars(section_key)
+        after_start = bool(vars_["after_start"].get())
+        after_restart = bool(vars_["after_restart"].get())
+        self.config_manager.set_auto_section(
+            section_key, after_start=after_start, after_restart=after_restart
+        )
 
-    def _apply_autostart(self) -> None:
-        """Traegt das Programm in den Windows-Autostart ein bzw. aus."""
-        enabled = bool(self.autostart_var.get())
-        ok = self.autostart_manager.set_enabled(enabled)
-        if not ok:
-            # Zuruecksetzen, wenn es nicht geklappt hat (z. B. kein Windows).
-            self.autostart_var.set(not enabled)
-            self._set_status("Autostart konnte nicht geändert werden (nur unter Windows möglich).")
-            return
-        self.config_manager.set("autostart_enabled", enabled)
-        if enabled:
-            self._set_status(
-                "Programm startet künftig mit Windows. Tipp: zusätzlich 'Automatik nach Start' "
-                "anhaken, damit nach dem Neustart sofort geschlossen wird."
-            )
-        else:
-            self._set_status("Programm startet nicht mehr automatisch mit Windows.")
+        # Windows-Autostart aktivieren, sobald mindestens eine Sektion
+        # "nach Neustart" verlangt - sonst deaktivieren.
+        open_restart = bool(self.open_vars["after_restart"].get())
+        close_restart = bool(self.close_vars["after_restart"].get())
+        want_autostart = open_restart or close_restart
+        currently = bool(self.config_manager.get("autostart_enabled", False))
+        if want_autostart != currently:
+            ok = self.autostart_manager.set_enabled(want_autostart)
+            if ok:
+                self.config_manager.set("autostart_enabled", want_autostart)
+            elif want_autostart:
+                self._set_status(
+                    "Hinweis: Autostart konnte nicht eingetragen werden (nur unter Windows möglich). "
+                    "Die Einstellung wurde trotzdem gespeichert."
+                )
+                return
 
-    def _toggle_monitoring(self, force_start: bool = False) -> None:
-        """Schaltet die Dauerueberwachung ein/aus (auch vom Tray/Hotkey aufrufbar)."""
-        if force_start or not self.monitor.is_running:
-            self.monitor.start()
+        name = vars_["label"]
+        parts = []
+        if after_start:
+            parts.append("nach Programmstart")
+        if after_restart:
+            parts.append("nach PC-Neustart")
+        if parts:
+            self._set_status(f"{name}: startet automatisch {' und '.join(parts)}.")
         else:
-            self.monitor.stop()
-        self._update_auto_button()
+            self._set_status(f"{name}: startet nicht mehr automatisch.")
+
+    def _toggle_section_auto(self, section_key: str) -> None:
+        """Schaltet die Automatik einer einzelnen Sektion ein/aus (Checkbox 'Auto')."""
+        vars_ = self._section_vars(section_key)
+        automation = self._section_automation(section_key)
+        if vars_["active"].get():
+            automation.start()
+            self._set_status(f"{vars_['label']} aktiviert.")
+        else:
+            automation.stop()
+            self._set_status(f"{vars_['label']} gestoppt.")
+        self._sync_auto_states()
         self.tray.refresh_icon()
 
-    def _update_auto_button(self) -> None:
-        """Passt den Text des Auto-Knopfs und die Statuszeile an den Status an."""
-        if self.monitor.is_running:
-            self.auto_button.configure(text="DeactivateAuto")
-            self._set_status("Automatik aktiv - Ziele werden im Hintergrund geschlossen.")
+    def _toggle_monitoring(self, force_start: bool = False) -> None:
+        """
+        Master-Schalter (ActivateAuto-Knopf, Tray, Hotkey): schaltet BEIDE
+        Automatiken gemeinsam ein oder aus.
+        """
+        any_running = self.monitor.is_running or self.opener.is_running
+        if force_start or not any_running:
+            self.opener.start()
+            self.monitor.start()
+            self._set_status("Automatik aktiv - OPEN und CLOSE laufen im Hintergrund.")
         else:
-            self.auto_button.configure(text="ActivateAuto")
+            self.opener.stop()
+            self.monitor.stop()
             self._set_status("Automatik gestoppt.")
+        self._sync_auto_states()
+        self.tray.refresh_icon()
+
+    def _sync_auto_states(self) -> None:
+        """Gleicht Knopf-Text und Auto-Checkboxen mit dem echten Zustand ab."""
+        any_running = self.monitor.is_running or self.opener.is_running
+        wanted_text = "DeactivateAuto" if any_running else "ActivateAuto"
+        if self.auto_button.cget("text") != wanted_text:
+            self.auto_button.configure(text=wanted_text)
+        if bool(self.open_vars["active"].get()) != self.opener.is_running:
+            self.open_vars["active"].set(self.opener.is_running)
+        if bool(self.close_vars["active"].get()) != self.monitor.is_running:
+            self.close_vars["active"].set(self.monitor.is_running)
+
+    def _activate_on_startup(self) -> None:
+        """
+        Aktiviert Automatiken beim Programmstart:
+          - Start durch Windows-Autostart (--autostart): Sektionen mit 'nach Neustart'
+          - normaler Start: Sektionen mit 'nach Start'
+        """
+        launched_by_windows = "--autostart" in sys.argv
+        flag = "after_restart" if launched_by_windows else "after_start"
+
+        open_section = self.config_manager.get_auto_section("open_auto")
+        close_section = self.config_manager.get_auto_section("close_auto")
+
+        started = []
+        if open_section.get(flag):
+            self.opener.start()
+            started.append("OPEN")
+        if close_section.get(flag):
+            self.monitor.start()
+            started.append("CLOSE")
+
+        if started:
+            reason = "PC-Neustart" if launched_by_windows else "Programmstart"
+            self._set_status(f"Automatik nach {reason} aktiv: {' + '.join(started)}")
+        self._sync_auto_states()
 
     def _register_hotkey(self) -> None:
         """Registriert den in der Konfiguration hinterlegten globalen Hotkey."""
@@ -468,23 +579,25 @@ class AutoCloseApp(tk.Tk):
             self._set_status(f"Bereit - Hotkey für Automatik: {hotkey}")
 
     # ------------------------------------------------------------------
-    # Callbacks vom Ueberwachungs-Thread (laufen NICHT im GUI-Thread!)
+    # Callbacks der Automatik-Threads (laufen NICHT im GUI-Thread!)
     # ------------------------------------------------------------------
     def _on_item_closed(self, name: str, kind: str) -> None:
-        """Wird vom Hintergrund-Thread aufgerufen, sobald ein Element geschlossen wurde."""
+        """Wird vom CLOSE-Thread aufgerufen, sobald ein Element geschlossen wurde."""
         # tkinter ist nicht thread-sicher - Updates laufen ueber die UI-Warteschlange.
         self._run_on_ui_thread(lambda: self._set_status(f"Geschlossen: {name}"))
 
+    def _on_program_opened(self, program: str) -> None:
+        """Wird vom OPEN-Thread aufgerufen, sobald ein Programm gestartet wurde."""
+        base = os.path.basename(program)
+        self._run_on_ui_thread(lambda: self._set_status(f"Automatisch gestartet: {base}"))
+
     def _on_monitor_error(self, message: str) -> None:
-        """Wird vom Hintergrund-Thread bei einem Fehler aufgerufen."""
+        """Wird von den Automatik-Threads bei einem Fehler aufgerufen."""
         self._run_on_ui_thread(lambda: self._set_status(f"Fehler: {message}"))
 
     def _refresh_status_loop(self) -> None:
-        """Aktualisiert periodisch den Auto-Knopf (z. B. nach Tray/Hotkey-Aktionen)."""
-        if self.monitor.is_running and self.auto_button.cget("text") != "DeactivateAuto":
-            self.auto_button.configure(text="DeactivateAuto")
-        elif not self.monitor.is_running and self.auto_button.cget("text") != "ActivateAuto":
-            self.auto_button.configure(text="ActivateAuto")
+        """Gleicht periodisch die Anzeige mit dem echten Zustand ab (Tray/Hotkey)."""
+        self._sync_auto_states()
         self.after(1000, self._refresh_status_loop)
 
     def _set_status(self, message: str) -> None:
@@ -511,6 +624,7 @@ class AutoCloseApp(tk.Tk):
     def _quit_app(self) -> None:
         """Beendet die Anwendung vollstaendig und raeumt alle Ressourcen auf."""
         self.monitor.stop()
+        self.opener.stop()
         self.hotkey_manager.unregister()
         self.tray.stop()
         self.config_manager.save()

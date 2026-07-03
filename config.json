@@ -7,6 +7,20 @@
         "process_names": []
     },
     "open_programs": [],
+    "open_auto": {
+        "interval_value": 2.0,
+        "interval_unit": "s",
+        "interval_seconds": 2.0,
+        "after_start": false,
+        "after_restart": false
+    },
+    "close_auto": {
+        "interval_value": 2.0,
+        "interval_unit": "s",
+        "interval_seconds": 2.0,
+        "after_start": false,
+        "after_restart": false
+    },
     "check_interval_seconds": 2.0,
     "check_interval_value": 2.0,
     "check_interval_unit": "s",

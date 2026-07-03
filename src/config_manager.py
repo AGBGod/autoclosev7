@@ -16,6 +16,15 @@ from src.paths import get_config_path
 
 logger = logging.getLogger("AutoCloseV7.Config")
 
+# Standardwerte fuer eine Automatik-Sektion (OPEN bzw. CLOSE).
+DEFAULT_AUTO_SECTION: Dict[str, Any] = {
+    "interval_value": 2.0,
+    "interval_unit": "s",
+    "interval_seconds": 2.0,
+    "after_start": False,
+    "after_restart": False,
+}
+
 # Standardwerte, falls keine config.json existiert oder Schluessel fehlen.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "targets": {
@@ -23,6 +32,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "process_names": [],
     },
     "open_programs": [],
+    "open_auto": dict(DEFAULT_AUTO_SECTION),
+    "close_auto": dict(DEFAULT_AUTO_SECTION),
     "check_interval_seconds": 2.0,
     "check_interval_value": 2.0,
     "check_interval_unit": "s",
@@ -64,6 +75,16 @@ class ConfigManager:
                 # Fehlende Schluessel mit Standardwerten auffuellen (Vorwaertskompatibilitaet).
                 merged = json.loads(json.dumps(DEFAULT_CONFIG))
                 merged.update(loaded)
+                # Migration alter Einstellungen: frueher gab es nur EIN Intervall
+                # und EIN "Automatik nach Start" (fuer das Schliessen).
+                if "close_auto" not in loaded:
+                    merged["close_auto"] = dict(DEFAULT_AUTO_SECTION)
+                    merged["close_auto"]["interval_value"] = merged.get("check_interval_value", 2.0)
+                    merged["close_auto"]["interval_unit"] = merged.get("check_interval_unit", "s")
+                    merged["close_auto"]["interval_seconds"] = merged.get("check_interval_seconds", 2.0)
+                    merged["close_auto"]["after_start"] = bool(
+                        merged.get("monitoring_enabled_on_start", False)
+                    )
                 self._data = merged
                 logger.info("Konfiguration erfolgreich geladen aus %s", self._config_path)
             except (json.JSONDecodeError, OSError) as exc:
@@ -105,6 +126,25 @@ class ConfigManager:
         """Liste der zu ueberwachenden Prozessnamen (z. B. 'notepad.exe')."""
         with self._lock:
             return list(self._data["targets"].get("process_names", []))
+
+    def get_auto_section(self, name: str) -> Dict[str, Any]:
+        """
+        Liefert die Automatik-Einstellungen einer Sektion ('open_auto' oder
+        'close_auto') - fehlende Werte werden mit Standardwerten aufgefuellt.
+        """
+        with self._lock:
+            section = dict(DEFAULT_AUTO_SECTION)
+            stored = self._data.get(name)
+            if isinstance(stored, dict):
+                section.update(stored)
+            return section
+
+    def set_auto_section(self, name: str, **values: Any) -> None:
+        """Aktualisiert einzelne Werte einer Automatik-Sektion und speichert."""
+        with self._lock:
+            section = self._data.setdefault(name, dict(DEFAULT_AUTO_SECTION))
+            section.update(values)
+        self.save()
 
     @property
     def open_programs(self) -> List[str]:
