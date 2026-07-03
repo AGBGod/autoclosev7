@@ -1,0 +1,14 @@
+# AutoCloseV7 – Abhaengigkeiten (nur unter Windows lauffaehig)
+#
+# Installation:
+#   pip install -r requirements.txt
+
+pywin32>=306        # Zugriff auf die Windows-API (Fenster erkennen/schliessen, Autostart)
+psutil>=5.9.8        # Prozessinformationen (Name, PID, Beenden von Prozessen)
+pystray>=0.19.5      # System-Tray-Icon mit Kontextmenue
+Pillow>=10.2.0       # Wird von pystray zur Erzeugung des Tray-Icons benoetigt
+keyboard>=0.13.5     # Globaler Hotkey zum Ein-/Ausschalten der Ueberwachung
+
+# Nur zum Bauen der eigenstaendigen .exe noetig (wird von build.bat automatisch
+# installiert, muss also nicht manuell installiert werden):
+#   pyinstaller>=6.0

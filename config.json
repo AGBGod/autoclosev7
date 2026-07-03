@@ -1,0 +1,15 @@
+{
+    "targets": {
+        "window_titles": [
+            "Update Available",
+            "Adobe Flash Player Settings"
+        ],
+        "process_names": []
+    },
+    "check_interval_seconds": 2.0,
+    "autostart_enabled": false,
+    "hotkey": "ctrl+alt+p",
+    "monitoring_enabled_on_start": false,
+    "close_method": "graceful",
+    "minimize_to_tray_on_close": true
+}
