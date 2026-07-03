@@ -474,21 +474,21 @@ class AutoCloseApp(tk.Tk):
         )
 
         # Windows-Autostart aktivieren, sobald mindestens eine Sektion
-        # "nach Neustart" verlangt - sonst deaktivieren.
+        # "nach Neustart" verlangt - sonst deaktivieren. Der Registry-Eintrag
+        # wird bewusst IMMER neu geschrieben (idempotent), damit auch aeltere
+        # Eintraege ohne --autostart-Parameter aktualisiert werden.
         open_restart = bool(self.open_vars["after_restart"].get())
         close_restart = bool(self.close_vars["after_restart"].get())
         want_autostart = open_restart or close_restart
-        currently = bool(self.config_manager.get("autostart_enabled", False))
-        if want_autostart != currently:
-            ok = self.autostart_manager.set_enabled(want_autostart)
-            if ok:
-                self.config_manager.set("autostart_enabled", want_autostart)
-            elif want_autostart:
-                self._set_status(
-                    "Hinweis: Autostart konnte nicht eingetragen werden (nur unter Windows möglich). "
-                    "Die Einstellung wurde trotzdem gespeichert."
-                )
-                return
+        ok = self.autostart_manager.set_enabled(want_autostart)
+        if ok:
+            self.config_manager.set("autostart_enabled", want_autostart)
+        elif want_autostart:
+            self._set_status(
+                "Hinweis: Autostart konnte nicht eingetragen werden (nur unter Windows möglich). "
+                "Die Einstellung wurde trotzdem gespeichert."
+            )
+            return
 
         name = vars_["label"]
         parts = []
@@ -550,6 +550,12 @@ class AutoCloseApp(tk.Tk):
         """
         launched_by_windows = "--autostart" in sys.argv
         flag = "after_restart" if launched_by_windows else "after_start"
+
+        # Bestehenden Autostart-Eintrag beim Start auffrischen, damit er den
+        # aktuellen Pfad und den --autostart-Parameter enthaelt (aeltere
+        # Versionen haben den Eintrag ohne diesen Parameter geschrieben).
+        if self.config_manager.get("autostart_enabled", False):
+            self.autostart_manager.enable()
 
         open_section = self.config_manager.get_auto_section("open_auto")
         close_section = self.config_manager.get_auto_section("close_auto")
