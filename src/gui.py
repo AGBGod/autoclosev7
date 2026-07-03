@@ -23,6 +23,7 @@ Die Knoepfe:
 """
 
 import logging
+import math
 import os
 import queue
 import subprocess
@@ -380,7 +381,7 @@ class AutoCloseApp(tk.Tk):
         except ValueError:
             self._set_status("Ungültige Zahl beim Intervall - bitte z. B. 2 oder 0,5 eingeben.")
             return
-        if value <= 0:
+        if not math.isfinite(value) or value <= 0:
             self._set_status("Das Intervall muss größer als 0 sein.")
             return
 
@@ -395,6 +396,12 @@ class AutoCloseApp(tk.Tk):
         self.config_manager.set("check_interval_value", value, autosave=False)
         self.config_manager.set("check_interval_unit", unit, autosave=False)
         self.config_manager.set("check_interval_seconds", seconds)
+
+        # Laeuft die Automatik gerade, kurz neu starten, damit das neue
+        # Intervall sofort gilt (sonst wuerde erst der alte Wartezyklus enden).
+        if self.monitor.is_running:
+            self.monitor.stop()
+            self.monitor.start()
 
         pretty = f"{self._format_number(value)} {unit}"
         if clamped:
