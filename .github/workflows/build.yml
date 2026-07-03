@@ -1,0 +1,41 @@
+# AutoCloseV7 – Automatischer Windows-Build
+#
+# Dieser GitHub-Actions-Workflow baut bei jedem Push (und manuell per
+# "Run workflow") die eigenstaendige AutoCloseV7.exe auf einem
+# Windows-Server und stellt sie als Build-Artefakt bereit.
+
+name: Build AutoCloseV7.exe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: EXE bauen (PyInstaller)
+        run: pyinstaller AutoCloseV7.spec --noconfirm
+
+      - name: EXE als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoCloseV7-exe
+          path: dist/AutoCloseV7.exe
+          if-no-files-found: error
