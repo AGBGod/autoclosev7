@@ -37,11 +37,12 @@ import queue
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox
 
 from .autostart import AutostartManager
 from .config_manager import ConfigManager
 from .hotkey import HotkeyManager
+from .process_list import list_open_windows, list_running_programs
 from .program_opener import ProgramOpener
 from .stats import StatsTracker
 from .tray import TrayIcon
@@ -52,6 +53,17 @@ logger = logging.getLogger("AutoCloseV7.GUI")
 
 # Umrechnungsfaktoren der Intervall-Einheiten in Sekunden.
 UNIT_FACTORS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
+
+# Bekannte Windows-Programme, die man ohne Dateisuche hinzufuegen kann.
+KNOWN_WINDOWS_PROGRAMS = [
+    ("Task-Manager", "taskmgr.exe"),
+    ("Editor (Notepad)", "notepad.exe"),
+    ("Rechner", "calc.exe"),
+    ("Explorer (Dateien)", "explorer.exe"),
+    ("Eingabeaufforderung", "cmd.exe"),
+    ("Systemsteuerung", "control.exe"),
+    ("Einstellungen", "ms-settings:"),
+]
 
 
 class AutoCloseApp(tk.Tk):
@@ -291,16 +303,111 @@ class AutoCloseApp(tk.Tk):
             self.close_listbox.insert(tk.END, name)
 
     def _add_open_program(self) -> None:
-        """Waehlt per Dateidialog ein Programm aus und fuegt es zur OPEN-Liste hinzu."""
-        path = filedialog.askopenfilename(
-            title="Programm auswählen",
-            filetypes=[("Programme", "*.exe"), ("Verknüpfungen", "*.lnk"), ("Alle Dateien", "*.*")],
+        """
+        Oeffnet einen Auswahl-Dialog fuer die OPEN-Liste:
+          - bekannte Windows-Programme (z. B. Task-Manager)
+          - gerade laufende Programme (wie im Task-Manager)
+          - eigene Datei auswaehlen oder Namen/Befehl eintippen
+        """
+        dialog = tk.Toplevel(self)
+        dialog.title("Programm für OPEN hinzufügen")
+        dialog.geometry("540x560")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        def add_value(value: str, shown: str = "") -> None:
+            value = (value or "").strip()
+            if not value:
+                return
+            self.config_manager.add_open_program(value)
+            self._reload_lists()
+            self._set_status(f"Hinzugefügt: {shown or value}")
+
+        # --- Bekannte Windows-Programme --------------------------------
+        tk.Label(dialog, text="Windows-Programme (Doppelklick zum Hinzufügen):").pack(
+            anchor="w", padx=8, pady=(8, 0)
         )
-        if not path:
-            return
-        self.config_manager.add_open_program(path)
-        self._reload_lists()
-        self._set_status(f"Hinzugefügt: {os.path.basename(path)}")
+        known_box = tk.Listbox(dialog, bg="white", height=7, activestyle="none")
+        for label, command in KNOWN_WINDOWS_PROGRAMS:
+            known_box.insert(tk.END, f"{label}   ({command})")
+        known_box.pack(fill="x", padx=8)
+
+        def add_known(_event=None):
+            selection = known_box.curselection()
+            if not selection or selection[0] >= len(KNOWN_WINDOWS_PROGRAMS):
+                return
+            label, command = KNOWN_WINDOWS_PROGRAMS[selection[0]]
+            add_value(command, label)
+
+        known_box.bind("<Double-Button-1>", add_known)
+
+        # --- Gerade laufende Programme ----------------------------------
+        tk.Label(dialog, text="Gerade laufende Programme (Doppelklick zum Hinzufügen):").pack(
+            anchor="w", padx=8, pady=(8, 0)
+        )
+        running_box = tk.Listbox(dialog, bg="white", activestyle="none")
+        running_box.pack(fill="both", expand=True, padx=8)
+        running_programs: list = []
+
+        def refresh_running():
+            running_programs.clear()
+            running_box.delete(0, tk.END)
+            for name, exe in list_running_programs():
+                running_programs.append((name, exe))
+                running_box.insert(tk.END, name)
+            if not running_programs:
+                running_box.insert(tk.END, "(keine Einträge - nur unter Windows verfügbar)")
+
+        refresh_running()
+
+        def add_running(_event=None):
+            selection = running_box.curselection()
+            if not selection or selection[0] >= len(running_programs):
+                return
+            name, exe = running_programs[selection[0]]
+            add_value(exe or name, name)
+
+        running_box.bind("<Double-Button-1>", add_running)
+
+        # --- Eigener Name/Befehl ----------------------------------------
+        entry_row = tk.Frame(dialog)
+        entry_row.pack(fill="x", padx=8, pady=(8, 0))
+        tk.Label(entry_row, text="Name/Befehl:").pack(side="left")
+        manual_var = tk.StringVar()
+        manual_entry = tk.Entry(entry_row, textvariable=manual_var)
+        manual_entry.pack(side="left", fill="x", expand=True, padx=4)
+
+        def add_manual(_event=None):
+            add_value(manual_var.get())
+            manual_var.set("")
+
+        manual_entry.bind("<Return>", add_manual)
+        tk.Button(entry_row, text="Hinzufügen", command=add_manual).pack(side="left")
+
+        # --- Untere Knopfleiste ------------------------------------------
+        button_row = tk.Frame(dialog)
+        button_row.pack(pady=8)
+
+        def choose_file():
+            path = filedialog.askopenfilename(
+                parent=dialog,
+                title="Programm auswählen",
+                filetypes=[
+                    ("Programme", "*.exe"),
+                    ("Verknüpfungen", "*.lnk"),
+                    ("Alle Dateien", "*.*"),
+                ],
+            )
+            if path:
+                add_value(path, os.path.basename(path))
+
+        tk.Button(button_row, text="Datei auswählen…", command=choose_file).pack(
+            side="left", padx=4
+        )
+        tk.Button(button_row, text="Aktualisieren", command=refresh_running).pack(
+            side="left", padx=4
+        )
+        tk.Button(button_row, text="Fertig", command=dialog.destroy).pack(side="left", padx=4)
 
     def _remove_open_program(self) -> None:
         """Entfernt den markierten Eintrag aus der OPEN-Liste."""
@@ -314,23 +421,105 @@ class AutoCloseApp(tk.Tk):
         self._set_status(f"Entfernt: {os.path.basename(entry)}")
 
     def _add_close_target(self) -> None:
-        """Fragt einen Fenstertitel oder Prozessnamen ab und fuegt ihn zur CLOSE-Liste hinzu."""
-        value = simpledialog.askstring(
-            "Programm für CLOSE hinzufügen",
-            "Fenstertitel oder Prozessname eingeben\n(z. B. \"Update verfügbar\" oder \"notepad.exe\"):",
-            parent=self,
+        """
+        Oeffnet einen Auswahl-Dialog fuer die CLOSE-Liste - wie im Task-Manager:
+          - Liste der gerade offenen Fenster (Titel)
+          - Liste der gerade laufenden Programme (Prozesse)
+          - eigenes Feld fuer Fenstertitel oder Prozessnamen
+        """
+        dialog = tk.Toplevel(self)
+        dialog.title("Programm für CLOSE hinzufügen")
+        dialog.geometry("540x560")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        def added(value: str) -> None:
+            self._reload_lists()
+            self._set_status(f"Hinzugefügt: {value}")
+
+        # --- Offene Fenster ----------------------------------------------
+        tk.Label(dialog, text="Offene Fenster (Doppelklick zum Hinzufügen):").pack(
+            anchor="w", padx=8, pady=(8, 0)
         )
-        if not value:
-            return
-        value = value.strip()
-        if not value:
-            return
-        if value.lower().endswith(".exe"):
-            self.config_manager.add_process_name(value)
-        else:
-            self.config_manager.add_window_title(value)
-        self._reload_lists()
-        self._set_status(f"Hinzugefügt: {value}")
+        windows_box = tk.Listbox(dialog, bg="white", height=9, activestyle="none")
+        windows_box.pack(fill="both", expand=True, padx=8)
+        window_titles: list = []
+
+        # --- Laufende Programme --------------------------------------------
+        tk.Label(dialog, text="Laufende Programme (Doppelklick zum Hinzufügen):").pack(
+            anchor="w", padx=8, pady=(8, 0)
+        )
+        process_box = tk.Listbox(dialog, bg="white", height=9, activestyle="none")
+        process_box.pack(fill="both", expand=True, padx=8)
+        process_names: list = []
+
+        def refresh_lists():
+            window_titles.clear()
+            windows_box.delete(0, tk.END)
+            for title in list_open_windows():
+                window_titles.append(title)
+                windows_box.insert(tk.END, title)
+            if not window_titles:
+                windows_box.insert(tk.END, "(keine Einträge - nur unter Windows verfügbar)")
+
+            process_names.clear()
+            process_box.delete(0, tk.END)
+            for name, _exe in list_running_programs():
+                process_names.append(name)
+                process_box.insert(tk.END, name)
+            if not process_names:
+                process_box.insert(tk.END, "(keine Einträge - nur unter Windows verfügbar)")
+
+        refresh_lists()
+
+        def add_window(_event=None):
+            selection = windows_box.curselection()
+            if not selection or selection[0] >= len(window_titles):
+                return
+            title = window_titles[selection[0]]
+            self.config_manager.add_window_title(title)
+            added(title)
+
+        def add_process(_event=None):
+            selection = process_box.curselection()
+            if not selection or selection[0] >= len(process_names):
+                return
+            name = process_names[selection[0]]
+            self.config_manager.add_process_name(name)
+            added(name)
+
+        windows_box.bind("<Double-Button-1>", add_window)
+        process_box.bind("<Double-Button-1>", add_process)
+
+        # --- Eigene Eingabe -------------------------------------------------
+        entry_row = tk.Frame(dialog)
+        entry_row.pack(fill="x", padx=8, pady=(8, 0))
+        tk.Label(entry_row, text="Titel/Name:").pack(side="left")
+        manual_var = tk.StringVar()
+        manual_entry = tk.Entry(entry_row, textvariable=manual_var)
+        manual_entry.pack(side="left", fill="x", expand=True, padx=4)
+
+        def add_manual(_event=None):
+            value = manual_var.get().strip()
+            if not value:
+                return
+            if value.lower().endswith(".exe"):
+                self.config_manager.add_process_name(value)
+            else:
+                self.config_manager.add_window_title(value)
+            manual_var.set("")
+            added(value)
+
+        manual_entry.bind("<Return>", add_manual)
+        tk.Button(entry_row, text="Hinzufügen", command=add_manual).pack(side="left")
+
+        # --- Untere Knopfleiste ----------------------------------------------
+        button_row = tk.Frame(dialog)
+        button_row.pack(pady=8)
+        tk.Button(button_row, text="Aktualisieren", command=refresh_lists).pack(
+            side="left", padx=4
+        )
+        tk.Button(button_row, text="Fertig", command=dialog.destroy).pack(side="left", padx=4)
 
     def _remove_close_target(self) -> None:
         """Entfernt den markierten Eintrag aus der CLOSE-Liste."""
