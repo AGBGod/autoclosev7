@@ -22,6 +22,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "window_titles": ["Update Available", "Adobe Flash Player Settings"],
         "process_names": [],
     },
+    "open_programs": [],
     "check_interval_seconds": 2.0,
     "autostart_enabled": False,
     "hotkey": "ctrl+alt+p",
@@ -102,6 +103,28 @@ class ConfigManager:
         """Liste der zu ueberwachenden Prozessnamen (z. B. 'notepad.exe')."""
         with self._lock:
             return list(self._data["targets"].get("process_names", []))
+
+    @property
+    def open_programs(self) -> List[str]:
+        """Liste der Programme (Pfade), die ueber den Open-Knopf gestartet werden."""
+        with self._lock:
+            return list(self._data.get("open_programs", []))
+
+    def add_open_program(self, path: str) -> None:
+        """Fuegt ein Programm zur OPEN-Liste hinzu."""
+        with self._lock:
+            programs = self._data.setdefault("open_programs", [])
+            if path and path not in programs:
+                programs.append(path)
+        self.save()
+
+    def remove_open_program(self, path: str) -> None:
+        """Entfernt ein Programm aus der OPEN-Liste."""
+        with self._lock:
+            programs = self._data.setdefault("open_programs", [])
+            if path in programs:
+                programs.remove(path)
+        self.save()
 
     def add_window_title(self, title: str) -> None:
         """Fuegt einen neuen Fenstertitel zur Zielliste hinzu."""

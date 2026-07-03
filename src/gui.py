@@ -1,20 +1,34 @@
 """
 gui.py
 -------
-Grafische Benutzeroberflaeche (GUI) von AutoCloseV7 im Dark Mode.
+Grafische Benutzeroberflaeche (GUI) von AutoCloseV7 im klassischen Windows-Look
+(angelehnt an AutoCloseV4).
 
-Enthaelt:
-  - Start/Stop-Button fuer die Ueberwachung
-  - Liste der Ziel-Fenstertitel und Ziel-Prozesse mit Hinzufuegen/Entfernen
-  - Einstellbares Pruefintervall
-  - Statistikanzeige
-  - Autostart-Umschalter und Anzeige des aktiven Hotkeys
+Aufbau:
+  - Liste "Programme fuer OPEN"  mit [+]/[-] Knoepfen (Programme, die per
+    Open-Knopf gestartet werden)
+  - Liste "Programme fuer CLOSE" mit [+]/[-] Knoepfen (Fenstertitel oder
+    Prozessnamen, die geschlossen werden sollen)
+  - Knopfleiste unten: Open | Close | ActivateAuto | AutoClose
+  - Statuszeile am unteren Rand
+
+Die Knoepfe:
+  - Open:         startet das markierte Programm der OPEN-Liste
+                  (ohne Markierung: alle Programme der Liste)
+  - Close:        schliesst das markierte Ziel der CLOSE-Liste sofort
+                  (ohne Markierung: alle Ziele der Liste)
+  - ActivateAuto: schaltet die automatische Dauerueberwachung ein/aus
+                  (laeuft im Hintergrund und schliesst Ziele automatisch)
+  - AutoClose:    schliesst sofort alle Ziele der CLOSE-Liste (ein Durchlauf)
 """
 
 import logging
+import os
 import queue
+import subprocess
+import sys
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog
 
 from .autostart import AutostartManager
 from .config_manager import ConfigManager
@@ -26,26 +40,16 @@ from .window_monitor import PLATFORM_SUPPORTED, WindowMonitor
 
 logger = logging.getLogger("AutoCloseV7.GUI")
 
-# --- Dark-Mode-Farbpalette ---------------------------------------------------
-BG_COLOR = "#1e1e2e"
-FG_COLOR = "#e4e4ef"
-ACCENT_COLOR = "#7c9dff"
-DANGER_COLOR = "#ff6b6b"
-SUCCESS_COLOR = "#63d29c"
-PANEL_COLOR = "#282838"
-BORDER_COLOR = "#3a3a4d"
-
 
 class AutoCloseApp(tk.Tk):
-    """Hauptfenster der Anwendung."""
+    """Hauptfenster der Anwendung im klassischen V4-Stil."""
 
     def __init__(self):
         super().__init__()
 
         self.title("AutoCloseV7")
-        self.geometry("680x600")
-        self.minsize(580, 500)
-        self.configure(bg=BG_COLOR)
+        self.geometry("720x540")
+        self.minsize(600, 460)
 
         # --- UI-Warteschlange ----------------------------------------------
         # tkinter ist nicht thread-sicher. Alle Aktionen, die von fremden
@@ -77,17 +81,14 @@ class AutoCloseApp(tk.Tk):
             is_running=lambda: self.monitor.is_running,
         )
 
-        self._setup_style()
         self._build_layout()
         self._register_hotkey()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_button)
 
         if not PLATFORM_SUPPORTED:
-            self._log_to_ui(
-                "Warnung: Diese Windows-Funktionen (Fenstererkennung, Tray, Autostart, "
-                "Hotkey) sind auf diesem System nicht verfuegbar. AutoCloseV7 ist fuer "
-                "Windows entwickelt."
+            self._set_status(
+                "Warnung: Windows-Funktionen sind auf diesem System nicht verfuegbar."
             )
 
         if self.config_manager.get("monitoring_enabled_on_start", False):
@@ -95,7 +96,7 @@ class AutoCloseApp(tk.Tk):
 
         self.tray.start()
         self._process_ui_queue()
-        self._refresh_stats_loop()
+        self._refresh_status_loop()
 
     # ------------------------------------------------------------------
     # Thread-sichere Bruecke in den GUI-Thread
@@ -125,258 +126,205 @@ class AutoCloseApp(tk.Tk):
         self.after(100, self._process_ui_queue)
 
     # ------------------------------------------------------------------
-    # Styling
-    # ------------------------------------------------------------------
-    def _setup_style(self) -> None:
-        """Konfiguriert das dunkle Erscheinungsbild aller ttk-Widgets."""
-        style = ttk.Style(self)
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-
-        style.configure("TFrame", background=BG_COLOR)
-        style.configure("Panel.TFrame", background=PANEL_COLOR)
-        style.configure("TLabel", background=BG_COLOR, foreground=FG_COLOR, font=("Segoe UI", 10))
-        style.configure(
-            "Header.TLabel", background=BG_COLOR, foreground=FG_COLOR, font=("Segoe UI", 16, "bold")
-        )
-        style.configure(
-            "TButton",
-            background=PANEL_COLOR,
-            foreground=FG_COLOR,
-            borderwidth=0,
-            focusthickness=0,
-            padding=8,
-            font=("Segoe UI", 10),
-        )
-        style.map("TButton", background=[("active", BORDER_COLOR)])
-        style.configure(
-            "Start.TButton",
-            background=SUCCESS_COLOR,
-            foreground="#0a1f14",
-            font=("Segoe UI", 11, "bold"),
-            padding=10,
-        )
-        style.map("Start.TButton", background=[("active", "#4fb384")])
-        style.configure(
-            "Stop.TButton",
-            background=DANGER_COLOR,
-            foreground="#2a0a0a",
-            font=("Segoe UI", 11, "bold"),
-            padding=10,
-        )
-        style.map("Stop.TButton", background=[("active", "#e05252")])
-        style.configure("TEntry", fieldbackground=PANEL_COLOR, foreground=FG_COLOR, insertcolor=FG_COLOR)
-        style.configure("TSpinbox", fieldbackground=PANEL_COLOR, foreground=FG_COLOR, arrowsize=14)
-        style.configure("TCheckbutton", background=BG_COLOR, foreground=FG_COLOR)
-        style.configure("TLabelframe", background=BG_COLOR, foreground=FG_COLOR)
-        style.configure(
-            "TLabelframe.Label", background=BG_COLOR, foreground=FG_COLOR, font=("Segoe UI", 10, "bold")
-        )
-
-    # ------------------------------------------------------------------
-    # Layout
+    # Layout (klassischer heller V4-Look)
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """Baut alle sichtbaren Bereiche des Hauptfensters auf."""
-        header = ttk.Frame(self, padding=(16, 16, 16, 8))
-        header.pack(fill="x")
-        ttk.Label(header, text="AutoCloseV7", style="Header.TLabel").pack(side="left")
+        """Baut das Fenster auf: zwei Listen mit +/- und die Knopfleiste unten."""
+        # --- Bereich "Programme fuer OPEN" -----------------------------------
+        tk.Label(self, text="Programme für OPEN").pack(pady=(8, 0))
 
-        self.status_var = tk.StringVar(value="Gestoppt")
-        ttk.Label(header, textvariable=self.status_var).pack(side="right")
+        open_row = tk.Frame(self)
+        open_row.pack(fill="both", expand=True, padx=8, pady=(2, 4))
 
-        control_frame = ttk.Frame(self, padding=(16, 0, 16, 8))
-        control_frame.pack(fill="x")
+        self.open_listbox = tk.Listbox(open_row, bg="white", activestyle="none")
+        self.open_listbox.pack(side="left", fill="both", expand=True)
 
-        self.toggle_button = ttk.Button(
-            control_frame, text="Start", style="Start.TButton", command=self._toggle_monitoring
+        open_buttons = tk.Frame(open_row)
+        open_buttons.pack(side="right", fill="y", padx=(8, 0))
+        tk.Button(open_buttons, text="+", width=8, command=self._add_open_program).pack(
+            pady=(16, 4)
         )
-        self.toggle_button.pack(side="left")
+        tk.Button(open_buttons, text="-", width=8, command=self._remove_open_program).pack()
 
-        ttk.Label(control_frame, text="Pruefintervall (Sek.):").pack(side="left", padx=(20, 6))
-        self.interval_var = tk.StringVar(value=str(self.config_manager.get("check_interval_seconds", 2.0)))
-        interval_spin = ttk.Spinbox(
-            control_frame,
-            from_=0.5,
-            to=60.0,
-            increment=0.5,
-            width=6,
-            textvariable=self.interval_var,
-            command=self._on_interval_changed,
+        # --- Bereich "Programme fuer CLOSE" ----------------------------------
+        tk.Label(self, text="Programme für CLOSE").pack()
+
+        close_row = tk.Frame(self)
+        close_row.pack(fill="both", expand=True, padx=8, pady=(2, 4))
+
+        self.close_listbox = tk.Listbox(close_row, bg="white", activestyle="none")
+        self.close_listbox.pack(side="left", fill="both", expand=True)
+
+        close_buttons = tk.Frame(close_row)
+        close_buttons.pack(side="right", fill="y", padx=(8, 0))
+        tk.Button(close_buttons, text="+", width=8, command=self._add_close_target).pack(
+            pady=(16, 4)
         )
-        interval_spin.pack(side="left")
-        interval_spin.bind("<Return>", lambda _e: self._on_interval_changed())
-        interval_spin.bind("<FocusOut>", lambda _e: self._on_interval_changed())
+        tk.Button(close_buttons, text="-", width=8, command=self._remove_close_target).pack()
 
-        self.autostart_var = tk.BooleanVar(value=self.autostart_manager.is_enabled())
-        autostart_check = ttk.Checkbutton(
-            control_frame,
-            text="Mit Windows starten",
-            variable=self.autostart_var,
-            command=self._on_autostart_toggled,
+        # --- Knopfleiste ------------------------------------------------------
+        button_row = tk.Frame(self)
+        button_row.pack(pady=10)
+
+        tk.Button(button_row, text="Open", width=10, command=self._open_programs).pack(
+            side="left", padx=6
         )
-        autostart_check.pack(side="right")
-
-        # --- Zielliste -----------------------------------------------------
-        targets_frame = ttk.Labelframe(self, text="Zu schliessende Fenster / Programme", padding=12)
-        targets_frame.pack(fill="both", expand=True, padx=16, pady=8)
-
-        list_container = ttk.Frame(targets_frame)
-        list_container.pack(fill="both", expand=True)
-
-        self.targets_listbox = tk.Listbox(
-            list_container,
-            bg=PANEL_COLOR,
-            fg=FG_COLOR,
-            selectbackground=ACCENT_COLOR,
-            selectforeground="#0b0b12",
-            highlightthickness=0,
-            borderwidth=0,
-            activestyle="none",
+        tk.Button(button_row, text="Close", width=10, command=self._close_selected).pack(
+            side="left", padx=6
         )
-        self.targets_listbox.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=self.targets_listbox.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.targets_listbox.configure(yscrollcommand=scrollbar.set)
-
-        entry_row = ttk.Frame(targets_frame)
-        entry_row.pack(fill="x", pady=(10, 0))
-
-        self.new_target_var = tk.StringVar()
-        target_entry = ttk.Entry(entry_row, textvariable=self.new_target_var)
-        target_entry.pack(side="left", fill="x", expand=True)
-        target_entry.bind("<Return>", lambda _e: self._add_target())
-
-        self.target_type_var = tk.StringVar(value="Fenstertitel")
-        type_menu = ttk.OptionMenu(
-            entry_row, self.target_type_var, "Fenstertitel", "Fenstertitel", "Prozessname"
+        self.auto_button = tk.Button(
+            button_row, text="ActivateAuto", width=12, command=self._toggle_monitoring
         )
-        type_menu.pack(side="left", padx=6)
-
-        ttk.Button(entry_row, text="Hinzufuegen", command=self._add_target).pack(side="left", padx=(6, 0))
-        ttk.Button(entry_row, text="Entfernen", command=self._remove_selected_target).pack(
-            side="left", padx=(6, 0)
+        self.auto_button.pack(side="left", padx=6)
+        tk.Button(button_row, text="AutoClose", width=10, command=self._auto_close_now).pack(
+            side="left", padx=6
         )
 
-        self._reload_target_list()
-
-        # --- Statistik -------------------------------------------------------
-        stats_frame = ttk.Labelframe(self, text="Statistik", padding=12)
-        stats_frame.pack(fill="x", padx=16, pady=(0, 8))
-
-        self.stats_total_var = tk.StringVar(value="Geschlossen: 0")
-        self.stats_last_var = tk.StringVar(value="Zuletzt: -")
-        self.stats_hotkey_var = tk.StringVar(
-            value=f"Hotkey: {self.config_manager.get('hotkey', 'ctrl+alt+p')}"
+        # --- Statuszeile ------------------------------------------------------
+        self.status_var = tk.StringVar(value="Bereit")
+        tk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken").pack(
+            fill="x", side="bottom"
         )
 
-        ttk.Label(stats_frame, textvariable=self.stats_total_var).pack(side="left")
-        ttk.Label(stats_frame, textvariable=self.stats_last_var).pack(side="left", padx=20)
-        ttk.Label(stats_frame, textvariable=self.stats_hotkey_var).pack(side="right")
-
-        # --- Log-Ausgabe -----------------------------------------------------
-        log_frame = ttk.Labelframe(self, text="Ereignisse", padding=12)
-        log_frame.pack(fill="both", expand=False, padx=16, pady=(0, 16))
-
-        self.log_text = tk.Text(
-            log_frame,
-            height=6,
-            bg=PANEL_COLOR,
-            fg=FG_COLOR,
-            borderwidth=0,
-            highlightthickness=0,
-            wrap="word",
-            state="disabled",
-        )
-        self.log_text.pack(fill="both", expand=True)
+        self._reload_lists()
 
     # ------------------------------------------------------------------
-    # Aktionen
+    # Listenpflege
     # ------------------------------------------------------------------
+    def _reload_lists(self) -> None:
+        """Baut beide Listen anhand der aktuellen Konfiguration neu auf."""
+        self.open_listbox.delete(0, tk.END)
+        for program in self.config_manager.open_programs:
+            self.open_listbox.insert(tk.END, program)
+
+        self.close_listbox.delete(0, tk.END)
+        for title in self.config_manager.window_titles:
+            self.close_listbox.insert(tk.END, title)
+        for name in self.config_manager.process_names:
+            self.close_listbox.insert(tk.END, name)
+
+    def _add_open_program(self) -> None:
+        """Waehlt per Dateidialog ein Programm aus und fuegt es zur OPEN-Liste hinzu."""
+        path = filedialog.askopenfilename(
+            title="Programm auswählen",
+            filetypes=[("Programme", "*.exe"), ("Verknüpfungen", "*.lnk"), ("Alle Dateien", "*.*")],
+        )
+        if not path:
+            return
+        self.config_manager.add_open_program(path)
+        self._reload_lists()
+        self._set_status(f"Hinzugefügt: {os.path.basename(path)}")
+
+    def _remove_open_program(self) -> None:
+        """Entfernt den markierten Eintrag aus der OPEN-Liste."""
+        selection = self.open_listbox.curselection()
+        if not selection:
+            self._set_status("Bitte zuerst einen Eintrag in der OPEN-Liste markieren.")
+            return
+        entry = self.open_listbox.get(selection[0])
+        self.config_manager.remove_open_program(entry)
+        self._reload_lists()
+        self._set_status(f"Entfernt: {os.path.basename(entry)}")
+
+    def _add_close_target(self) -> None:
+        """Fragt einen Fenstertitel oder Prozessnamen ab und fuegt ihn zur CLOSE-Liste hinzu."""
+        value = simpledialog.askstring(
+            "Programm für CLOSE hinzufügen",
+            "Fenstertitel oder Prozessname eingeben\n(z. B. \"Update verfügbar\" oder \"notepad.exe\"):",
+            parent=self,
+        )
+        if not value:
+            return
+        value = value.strip()
+        if not value:
+            return
+        if value.lower().endswith(".exe"):
+            self.config_manager.add_process_name(value)
+        else:
+            self.config_manager.add_window_title(value)
+        self._reload_lists()
+        self._set_status(f"Hinzugefügt: {value}")
+
+    def _remove_close_target(self) -> None:
+        """Entfernt den markierten Eintrag aus der CLOSE-Liste."""
+        selection = self.close_listbox.curselection()
+        if not selection:
+            self._set_status("Bitte zuerst einen Eintrag in der CLOSE-Liste markieren.")
+            return
+        entry = self.close_listbox.get(selection[0])
+        if entry in self.config_manager.process_names:
+            self.config_manager.remove_process_name(entry)
+        elif entry in self.config_manager.window_titles:
+            self.config_manager.remove_window_title(entry)
+        self._reload_lists()
+        self._set_status(f"Entfernt: {entry}")
+
+    # ------------------------------------------------------------------
+    # Knopf-Aktionen
+    # ------------------------------------------------------------------
+    def _open_programs(self) -> None:
+        """Startet das markierte Programm (oder alle, wenn nichts markiert ist)."""
+        selection = self.open_listbox.curselection()
+        if selection:
+            programs = [self.open_listbox.get(selection[0])]
+        else:
+            programs = self.config_manager.open_programs
+
+        if not programs:
+            self._set_status("Die OPEN-Liste ist leer - mit [+] ein Programm hinzufügen.")
+            return
+
+        started = 0
+        for program in programs:
+            try:
+                if sys.platform == "win32":
+                    os.startfile(program)  # noqa: S606 - bewusster Programmstart
+                else:
+                    subprocess.Popen([program])
+                started += 1
+                logger.info("Gestartet: %s", program)
+            except Exception as exc:
+                logger.error("Konnte '%s' nicht starten: %s", program, exc)
+                messagebox.showerror(
+                    "Open", f"Programm konnte nicht gestartet werden:\n{program}\n\n{exc}"
+                )
+        self._set_status(f"{started} Programm(e) gestartet.")
+
+    def _close_selected(self) -> None:
+        """Schliesst das markierte Ziel sofort (oder alle, wenn nichts markiert ist)."""
+        selection = self.close_listbox.curselection()
+        if selection:
+            entry = self.close_listbox.get(selection[0])
+            if entry in self.config_manager.process_names:
+                closed = self.monitor.close_now(window_titles=[], process_names=[entry])
+            else:
+                closed = self.monitor.close_now(window_titles=[entry], process_names=[])
+        else:
+            closed = self.monitor.close_now()
+        self._set_status(f"{closed} Fenster/Programm(e) geschlossen.")
+
+    def _auto_close_now(self) -> None:
+        """Schliesst sofort alle Ziele der CLOSE-Liste (ein kompletter Durchlauf)."""
+        closed = self.monitor.close_now()
+        self._set_status(f"AutoClose: {closed} Fenster/Programm(e) geschlossen.")
+
     def _toggle_monitoring(self, force_start: bool = False) -> None:
-        """Startet oder stoppt die Ueberwachung (auch vom Tray/Hotkey aufrufbar)."""
+        """Schaltet die Dauerueberwachung ein/aus (auch vom Tray/Hotkey aufrufbar)."""
         if force_start or not self.monitor.is_running:
             self.monitor.start()
         else:
             self.monitor.stop()
-        self._update_toggle_button()
+        self._update_auto_button()
         self.tray.refresh_icon()
 
-    def _update_toggle_button(self) -> None:
-        """Passt Text/Farbe des Start/Stop-Buttons an den aktuellen Status an."""
+    def _update_auto_button(self) -> None:
+        """Passt den Text des Auto-Knopfs und die Statuszeile an den Status an."""
         if self.monitor.is_running:
-            self.toggle_button.configure(text="Stop", style="Stop.TButton")
-            self.status_var.set("Aktiv")
+            self.auto_button.configure(text="DeactivateAuto")
+            self._set_status("Automatik aktiv - Ziele werden im Hintergrund geschlossen.")
         else:
-            self.toggle_button.configure(text="Start", style="Start.TButton")
-            self.status_var.set("Gestoppt")
-
-    def _on_interval_changed(self) -> None:
-        """Validiert und uebernimmt das neue Pruefintervall aus dem Eingabefeld."""
-        try:
-            value = float(self.interval_var.get())
-            if value <= 0:
-                raise ValueError("Intervall muss positiv sein")
-            self.config_manager.set("check_interval_seconds", value)
-            self._log_to_ui(f"Pruefintervall auf {value} Sekunden gesetzt.")
-        except ValueError:
-            messagebox.showerror(
-                "Ungueltiger Wert",
-                "Bitte eine positive Zahl fuer das Pruefintervall eingeben (z. B. 2.0).",
-            )
-            self.interval_var.set(str(self.config_manager.get("check_interval_seconds", 2.0)))
-
-    def _on_autostart_toggled(self) -> None:
-        """Aktiviert/deaktiviert den Windows-Autostart entsprechend der Checkbox."""
-        enabled = self.autostart_var.get()
-        success = self.autostart_manager.set_enabled(enabled)
-        if not success:
-            messagebox.showerror(
-                "Autostart",
-                "Autostart konnte nicht geaendert werden. Diese Funktion ist nur unter Windows verfuegbar.",
-            )
-            self.autostart_var.set(self.autostart_manager.is_enabled())
-            return
-        self.config_manager.set("autostart_enabled", enabled)
-        self._log_to_ui(f"Autostart {'aktiviert' if enabled else 'deaktiviert'}.")
-
-    def _add_target(self) -> None:
-        """Fuegt den Wert aus dem Eingabefeld als neues Ziel hinzu."""
-        value = self.new_target_var.get().strip()
-        if not value:
-            return
-        if self.target_type_var.get() == "Prozessname":
-            self.config_manager.add_process_name(value)
-        else:
-            self.config_manager.add_window_title(value)
-        self.new_target_var.set("")
-        self._reload_target_list()
-        self._log_to_ui(f"Ziel hinzugefuegt: {value}")
-
-    def _remove_selected_target(self) -> None:
-        """Entfernt den in der Liste ausgewaehlten Eintrag."""
-        selection = self.targets_listbox.curselection()
-        if not selection:
-            return
-        entry = self.targets_listbox.get(selection[0])
-        # Format: "[Fenster] Titel" oder "[Prozess] name.exe"
-        if entry.startswith("[Prozess] "):
-            self.config_manager.remove_process_name(entry.replace("[Prozess] ", "", 1))
-        elif entry.startswith("[Fenster] "):
-            self.config_manager.remove_window_title(entry.replace("[Fenster] ", "", 1))
-        self._reload_target_list()
-        self._log_to_ui(f"Ziel entfernt: {entry}")
-
-    def _reload_target_list(self) -> None:
-        """Baut die Listbox anhand der aktuellen Konfiguration neu auf."""
-        self.targets_listbox.delete(0, tk.END)
-        for title in self.config_manager.window_titles:
-            self.targets_listbox.insert(tk.END, f"[Fenster] {title}")
-        for name in self.config_manager.process_names:
-            self.targets_listbox.insert(tk.END, f"[Prozess] {name}")
+            self.auto_button.configure(text="ActivateAuto")
+            self._set_status("Automatik gestoppt.")
 
     def _register_hotkey(self) -> None:
         """Registriert den in der Konfiguration hinterlegten globalen Hotkey."""
@@ -386,11 +334,8 @@ class AutoCloseApp(tk.Tk):
         registered = self.hotkey_manager.register(
             hotkey, lambda: self._run_on_ui_thread(self._toggle_monitoring)
         )
-        if not registered:
-            self._log_to_ui(
-                f"Hinweis: Hotkey '{hotkey}' konnte nicht registriert werden "
-                "(nur unter Windows verfuegbar)."
-            )
+        if registered:
+            self._set_status(f"Bereit - Hotkey für Automatik: {hotkey}")
 
     # ------------------------------------------------------------------
     # Callbacks vom Ueberwachungs-Thread (laufen NICHT im GUI-Thread!)
@@ -398,26 +343,23 @@ class AutoCloseApp(tk.Tk):
     def _on_item_closed(self, name: str, kind: str) -> None:
         """Wird vom Hintergrund-Thread aufgerufen, sobald ein Element geschlossen wurde."""
         # tkinter ist nicht thread-sicher - Updates laufen ueber die UI-Warteschlange.
-        self._run_on_ui_thread(lambda: self._log_to_ui(f"Geschlossen: {name}"))
+        self._run_on_ui_thread(lambda: self._set_status(f"Geschlossen: {name}"))
 
     def _on_monitor_error(self, message: str) -> None:
         """Wird vom Hintergrund-Thread bei einem Fehler aufgerufen."""
-        self._run_on_ui_thread(lambda: self._log_to_ui(f"Fehler: {message}"))
+        self._run_on_ui_thread(lambda: self._set_status(f"Fehler: {message}"))
 
-    def _refresh_stats_loop(self) -> None:
-        """Aktualisiert periodisch die Statistikanzeige und den Start/Stop-Status."""
-        self.stats_total_var.set(f"Geschlossen: {self.stats.total_closed}")
-        last = self.stats.last_closed
-        self.stats_last_var.set(f"Zuletzt: {last.name}" if last else "Zuletzt: -")
-        self._update_toggle_button()
-        self.after(1000, self._refresh_stats_loop)
+    def _refresh_status_loop(self) -> None:
+        """Aktualisiert periodisch den Auto-Knopf (z. B. nach Tray/Hotkey-Aktionen)."""
+        if self.monitor.is_running and self.auto_button.cget("text") != "DeactivateAuto":
+            self.auto_button.configure(text="DeactivateAuto")
+        elif not self.monitor.is_running and self.auto_button.cget("text") != "ActivateAuto":
+            self.auto_button.configure(text="ActivateAuto")
+        self.after(1000, self._refresh_status_loop)
 
-    def _log_to_ui(self, message: str) -> None:
-        """Schreibt eine Zeile in das Ereignis-Fenster und in die Logdatei."""
-        self.log_text.configure(state="normal")
-        self.log_text.insert(tk.END, message + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.configure(state="disabled")
+    def _set_status(self, message: str) -> None:
+        """Schreibt eine Meldung in die Statuszeile und in die Logdatei."""
+        self.status_var.set(message)
         logger.info(message)
 
     # ------------------------------------------------------------------
@@ -432,7 +374,7 @@ class AutoCloseApp(tk.Tk):
         """Reagiert auf den Schliessen-Button des Fensters (X)."""
         if self.config_manager.get("minimize_to_tray_on_close", True):
             self.withdraw()
-            self._log_to_ui("In den Tray minimiert. Ueber das Tray-Symbol wieder oeffnen.")
+            self._set_status("In den Tray minimiert. Über das Tray-Symbol wieder öffnen.")
         else:
             self._quit_app()
 

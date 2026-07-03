@@ -103,6 +103,32 @@ class WindowMonitor:
         else:
             self.start()
 
+    def close_now(
+        self,
+        window_titles: Optional[list] = None,
+        process_names: Optional[list] = None,
+    ) -> int:
+        """
+        Fuehrt sofort einen einzelnen Schliess-Durchlauf aus (ohne die
+        Dauerueberwachung zu starten). Optional koennen eigene Ziellisten
+        uebergeben werden - sonst gelten die Ziele aus der Konfiguration.
+        Gibt die Anzahl der geschlossenen Elemente zurueck.
+        """
+        if not PLATFORM_SUPPORTED:
+            message = "Diese Funktion benoetigt Windows (pywin32/psutil fehlen)."
+            logger.error(message)
+            if self._on_error:
+                self._on_error(message)
+            return 0
+        try:
+            return self._scan_and_close(window_titles, process_names)
+        except Exception as exc:
+            message = f"Unerwarteter Fehler beim Schliessen: {exc}"
+            logger.exception(message)
+            if self._on_error:
+                self._on_error(message)
+            return 0
+
     def _run_loop(self) -> None:
         """Haupt-Schleife des Hintergrund-Threads - laeuft bis stop() aufgerufen wird."""
         while not self._stop_event.is_set():
@@ -127,13 +153,24 @@ class WindowMonitor:
             # Intervall einhalten, aber schnell auf stop() reagieren koennen.
             self._stop_event.wait(timeout=max(0.2, interval))
 
-    def _scan_and_close(self) -> None:
-        """Ein einzelner Durchlauf: alle Fenster pruefen und Treffer schliessen."""
-        window_titles = [t.lower() for t in self._config.window_titles]
-        process_names = [p.lower() for p in self._config.process_names]
+    def _scan_and_close(
+        self,
+        window_titles: Optional[list] = None,
+        process_names: Optional[list] = None,
+    ) -> int:
+        """
+        Ein einzelner Durchlauf: alle Fenster pruefen und Treffer schliessen.
+        Gibt die Anzahl der geschlossenen Elemente zurueck.
+        """
+        if window_titles is None:
+            window_titles = self._config.window_titles
+        if process_names is None:
+            process_names = self._config.process_names
+        window_titles = [t.lower() for t in window_titles]
+        process_names = [p.lower() for p in process_names]
 
         if not window_titles and not process_names:
-            return  # Nichts zu tun - spart CPU-Zyklen.
+            return 0  # Nichts zu tun - spart CPU-Zyklen.
 
         matches = []
 
@@ -165,10 +202,13 @@ class WindowMonitor:
 
         win32gui.EnumWindows(enum_handler, None)
 
+        closed = 0
         for hwnd, title, process_label in matches:
-            self._close_window(hwnd, title, process_label)
+            if self._close_window(hwnd, title, process_label):
+                closed += 1
+        return closed
 
-    def _close_window(self, hwnd: int, title: str, process_label: Optional[str]) -> None:
+    def _close_window(self, hwnd: int, title: str, process_label: Optional[str]) -> bool:
         """Schliesst ein einzelnes Fenster - zuerst sanft (WM_CLOSE), sonst ueber den Prozess."""
         close_method = self._config.get("close_method", "graceful")
         label = process_label or title or f"Fenster #{hwnd}"
@@ -184,9 +224,11 @@ class WindowMonitor:
             self._stats.record_closed(label, kind="process" if process_label else "window")
             if self._on_item_closed:
                 self._on_item_closed(label, "process" if process_label else "window")
+            return True
 
         except Exception as exc:
             message = f"Konnte '{label}' nicht schliessen: {exc}"
             logger.error(message)
             if self._on_error:
                 self._on_error(message)
+            return False

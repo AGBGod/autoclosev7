@@ -6,6 +6,7 @@
         ],
         "process_names": []
     },
+    "open_programs": [],
     "check_interval_seconds": 2.0,
     "autostart_enabled": false,
     "hotkey": "ctrl+alt+p",
