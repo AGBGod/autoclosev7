@@ -106,7 +106,17 @@ class WindowMonitor:
     def _run_loop(self) -> None:
         """Haupt-Schleife des Hintergrund-Threads - laeuft bis stop() aufgerufen wird."""
         while not self._stop_event.is_set():
-            interval = float(self._config.get("check_interval_seconds", 2.0))
+            interval = 2.0  # Sicherer Standardwert, falls die Konfiguration defekt ist.
+            try:
+                interval = float(self._config.get("check_interval_seconds", 2.0))
+                if interval <= 0:
+                    raise ValueError(f"Intervall muss positiv sein, ist aber {interval}")
+            except (TypeError, ValueError) as exc:
+                interval = 2.0
+                message = f"Ungueltiges Pruefintervall in der Konfiguration ({exc}) - nutze 2.0 Sekunden."
+                logger.error(message)
+                if self._on_error:
+                    self._on_error(message)
             try:
                 self._scan_and_close()
             except Exception as exc:  # Absichtlich breit gefangen, damit der Thread nie abstuerzt.

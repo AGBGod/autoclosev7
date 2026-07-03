@@ -12,6 +12,7 @@ Enthaelt:
 """
 
 import logging
+import queue
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -46,6 +47,13 @@ class AutoCloseApp(tk.Tk):
         self.minsize(580, 500)
         self.configure(bg=BG_COLOR)
 
+        # --- UI-Warteschlange ----------------------------------------------
+        # tkinter ist nicht thread-sicher. Alle Aktionen, die von fremden
+        # Threads ausgeloest werden (Tray-Menue, globaler Hotkey,
+        # Ueberwachungs-Thread), landen in dieser Warteschlange und werden
+        # periodisch im GUI-Thread abgearbeitet (siehe _process_ui_queue).
+        self._ui_queue: "queue.Queue" = queue.Queue()
+
         # --- Kernkomponenten ---------------------------------------------
         self.config_manager = ConfigManager()
         self.stats = StatsTracker()
@@ -60,10 +68,12 @@ class AutoCloseApp(tk.Tk):
             on_error=self._on_monitor_error,
         )
 
+        # Tray-Callbacks kommen aus dem Tray-Thread - nur in die Warteschlange
+        # legen, niemals direkt Tk-Methoden aufrufen.
         self.tray = TrayIcon(
-            on_toggle=self._toggle_monitoring,
-            on_show=self._restore_from_tray,
-            on_quit=self._quit_app,
+            on_toggle=lambda: self._run_on_ui_thread(self._toggle_monitoring),
+            on_show=lambda: self._run_on_ui_thread(self._restore_from_tray),
+            on_quit=lambda: self._run_on_ui_thread(self._quit_app),
             is_running=lambda: self.monitor.is_running,
         )
 
@@ -84,7 +94,35 @@ class AutoCloseApp(tk.Tk):
             self._toggle_monitoring(force_start=True)
 
         self.tray.start()
+        self._process_ui_queue()
         self._refresh_stats_loop()
+
+    # ------------------------------------------------------------------
+    # Thread-sichere Bruecke in den GUI-Thread
+    # ------------------------------------------------------------------
+    def _run_on_ui_thread(self, func) -> None:
+        """
+        Legt `func` in die UI-Warteschlange, damit sie im GUI-Thread ausgefuehrt
+        wird. Darf gefahrlos aus beliebigen Threads aufgerufen werden
+        (queue.Queue ist thread-sicher, es werden keine Tk-APIs beruehrt).
+        """
+        self._ui_queue.put(func)
+
+    def _process_ui_queue(self) -> None:
+        """Arbeitet anstehende UI-Aktionen ab - laeuft ausschliesslich im GUI-Thread."""
+        try:
+            while True:
+                func = self._ui_queue.get_nowait()
+                try:
+                    func()
+                except tk.TclError:
+                    # Fenster wurde evtl. gerade zerstoert (Beenden) - ignorieren.
+                    return
+                except Exception:
+                    logger.exception("Fehler bei einer UI-Aktion aus der Warteschlange.")
+        except queue.Empty:
+            pass
+        self.after(100, self._process_ui_queue)
 
     # ------------------------------------------------------------------
     # Styling
@@ -264,8 +302,8 @@ class AutoCloseApp(tk.Tk):
             self.monitor.start()
         else:
             self.monitor.stop()
-        self.after(0, self._update_toggle_button)
-        self.after(0, self.tray.refresh_icon)
+        self._update_toggle_button()
+        self.tray.refresh_icon()
 
     def _update_toggle_button(self) -> None:
         """Passt Text/Farbe des Start/Stop-Buttons an den aktuellen Status an."""
@@ -343,7 +381,11 @@ class AutoCloseApp(tk.Tk):
     def _register_hotkey(self) -> None:
         """Registriert den in der Konfiguration hinterlegten globalen Hotkey."""
         hotkey = self.config_manager.get("hotkey", "ctrl+alt+p")
-        registered = self.hotkey_manager.register(hotkey, self._toggle_monitoring)
+        # Der Hotkey-Callback kommt aus dem keyboard-Thread - deshalb nur in
+        # die UI-Warteschlange legen statt direkt Tk-Methoden aufzurufen.
+        registered = self.hotkey_manager.register(
+            hotkey, lambda: self._run_on_ui_thread(self._toggle_monitoring)
+        )
         if not registered:
             self._log_to_ui(
                 f"Hinweis: Hotkey '{hotkey}' konnte nicht registriert werden "
@@ -355,12 +397,12 @@ class AutoCloseApp(tk.Tk):
     # ------------------------------------------------------------------
     def _on_item_closed(self, name: str, kind: str) -> None:
         """Wird vom Hintergrund-Thread aufgerufen, sobald ein Element geschlossen wurde."""
-        # tkinter ist nicht thread-sicher - Updates muessen ueber after() in den GUI-Thread.
-        self.after(0, lambda: self._log_to_ui(f"Geschlossen: {name}"))
+        # tkinter ist nicht thread-sicher - Updates laufen ueber die UI-Warteschlange.
+        self._run_on_ui_thread(lambda: self._log_to_ui(f"Geschlossen: {name}"))
 
     def _on_monitor_error(self, message: str) -> None:
         """Wird vom Hintergrund-Thread bei einem Fehler aufgerufen."""
-        self.after(0, lambda: self._log_to_ui(f"Fehler: {message}"))
+        self._run_on_ui_thread(lambda: self._log_to_ui(f"Fehler: {message}"))
 
     def _refresh_stats_loop(self) -> None:
         """Aktualisiert periodisch die Statistikanzeige und den Start/Stop-Status."""
@@ -382,8 +424,9 @@ class AutoCloseApp(tk.Tk):
     # Fenstersteuerung / Tray
     # ------------------------------------------------------------------
     def _restore_from_tray(self) -> None:
-        """Zeigt das Hauptfenster wieder an, nachdem es in den Tray minimiert wurde."""
-        self.after(0, self.deiconify)
+        """Zeigt das Hauptfenster wieder an (laeuft ueber die UI-Warteschlange im GUI-Thread)."""
+        self.deiconify()
+        self.lift()
 
     def _on_close_button(self) -> None:
         """Reagiert auf den Schliessen-Button des Fensters (X)."""
