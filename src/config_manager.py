@@ -24,6 +24,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "open_programs": [],
     "check_interval_seconds": 2.0,
+    "check_interval_value": 2.0,
+    "check_interval_unit": "s",
     "autostart_enabled": False,
     "hotkey": "ctrl+alt+p",
     "monitoring_enabled_on_start": False,

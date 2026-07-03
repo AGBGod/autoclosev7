@@ -180,6 +180,55 @@ class AutoCloseApp(tk.Tk):
             side="left", padx=6
         )
 
+        # --- Einstellungen fuer die Automatik --------------------------------
+        settings_row = tk.Frame(self)
+        settings_row.pack(pady=(0, 6))
+
+        tk.Label(settings_row, text="Prüfen alle:").pack(side="left")
+
+        self.interval_value_var = tk.StringVar(
+            value=self._format_number(self.config_manager.get("check_interval_value", 2.0))
+        )
+        interval_entry = tk.Entry(settings_row, textvariable=self.interval_value_var, width=6)
+        interval_entry.pack(side="left", padx=(4, 2))
+        interval_entry.bind("<Return>", lambda _e: self._apply_interval())
+        interval_entry.bind("<FocusOut>", lambda _e: self._apply_interval())
+
+        self.interval_unit_var = tk.StringVar(
+            value=self.config_manager.get("check_interval_unit", "s")
+        )
+        unit_menu = tk.OptionMenu(
+            settings_row,
+            self.interval_unit_var,
+            "ms",
+            "s",
+            "m",
+            "h",
+            command=lambda _v: self._apply_interval(),
+        )
+        unit_menu.configure(width=3)
+        unit_menu.pack(side="left", padx=(0, 12))
+
+        self.auto_on_start_var = tk.BooleanVar(
+            value=bool(self.config_manager.get("monitoring_enabled_on_start", False))
+        )
+        tk.Checkbutton(
+            settings_row,
+            text="Automatik nach Start",
+            variable=self.auto_on_start_var,
+            command=self._apply_auto_on_start,
+        ).pack(side="left", padx=(0, 12))
+
+        self.autostart_var = tk.BooleanVar(
+            value=bool(self.config_manager.get("autostart_enabled", False))
+        )
+        tk.Checkbutton(
+            settings_row,
+            text="Mit Windows starten (nach Neustart)",
+            variable=self.autostart_var,
+            command=self._apply_autostart,
+        ).pack(side="left")
+
         # --- Statuszeile ------------------------------------------------------
         self.status_var = tk.StringVar(value="Bereit")
         tk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken").pack(
@@ -307,6 +356,80 @@ class AutoCloseApp(tk.Tk):
         """Schliesst sofort alle Ziele der CLOSE-Liste (ein kompletter Durchlauf)."""
         closed = self.monitor.close_now()
         self._set_status(f"AutoClose: {closed} Fenster/Programm(e) geschlossen.")
+
+    # ------------------------------------------------------------------
+    # Automatik-Einstellungen (Intervall + Startverhalten)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _format_number(value) -> str:
+        """Formatiert eine Zahl huebsch fuer das Eingabefeld (2.0 -> '2')."""
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "2"
+        if number == int(number):
+            return str(int(number))
+        return str(number)
+
+    def _apply_interval(self) -> None:
+        """Liest Wert + Einheit, rechnet in Sekunden um und speichert das Intervall."""
+        raw = self.interval_value_var.get().strip().replace(",", ".")
+        unit = self.interval_unit_var.get()
+        try:
+            value = float(raw)
+        except ValueError:
+            self._set_status("Ungültige Zahl beim Intervall - bitte z. B. 2 oder 0,5 eingeben.")
+            return
+        if value <= 0:
+            self._set_status("Das Intervall muss größer als 0 sein.")
+            return
+
+        factor = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}.get(unit, 1.0)
+        seconds = value * factor
+
+        clamped = False
+        if seconds < 0.2:
+            seconds = 0.2
+            clamped = True
+
+        self.config_manager.set("check_interval_value", value, autosave=False)
+        self.config_manager.set("check_interval_unit", unit, autosave=False)
+        self.config_manager.set("check_interval_seconds", seconds)
+
+        pretty = f"{self._format_number(value)} {unit}"
+        if clamped:
+            self._set_status(
+                f"Intervall gespeichert: {pretty} (Minimum ist 200 ms - es gilt 200 ms)."
+            )
+        else:
+            self._set_status(f"Automatik prüft jetzt alle {pretty}.")
+
+    def _apply_auto_on_start(self) -> None:
+        """Speichert, ob die Automatik beim Programmstart sofort aktiv sein soll."""
+        enabled = bool(self.auto_on_start_var.get())
+        self.config_manager.set("monitoring_enabled_on_start", enabled)
+        if enabled:
+            self._set_status("Automatik startet künftig automatisch beim Programmstart.")
+        else:
+            self._set_status("Automatik startet nicht mehr automatisch beim Programmstart.")
+
+    def _apply_autostart(self) -> None:
+        """Traegt das Programm in den Windows-Autostart ein bzw. aus."""
+        enabled = bool(self.autostart_var.get())
+        ok = self.autostart_manager.set_enabled(enabled)
+        if not ok:
+            # Zuruecksetzen, wenn es nicht geklappt hat (z. B. kein Windows).
+            self.autostart_var.set(not enabled)
+            self._set_status("Autostart konnte nicht geändert werden (nur unter Windows möglich).")
+            return
+        self.config_manager.set("autostart_enabled", enabled)
+        if enabled:
+            self._set_status(
+                "Programm startet künftig mit Windows. Tipp: zusätzlich 'Automatik nach Start' "
+                "anhaken, damit nach dem Neustart sofort geschlossen wird."
+            )
+        else:
+            self._set_status("Programm startet nicht mehr automatisch mit Windows.")
 
     def _toggle_monitoring(self, force_start: bool = False) -> None:
         """Schaltet die Dauerueberwachung ein/aus (auch vom Tray/Hotkey aufrufbar)."""
