@@ -101,22 +101,26 @@ erstellt. Der Build muss **auf einem Windows-Rechner** ausgefuehrt werden
 2. Doppelklick auf `build.bat`.
 
 Das Skript installiert automatisch alle Abhaengigkeiten inkl. PyInstaller und
-erstellt die fertige Datei unter **`dist\AutoCloseV8.exe`**.
+erstellt die fertige Datei unter **`dist\AutoCloseV7.exe`**.
 
 **Variante 2 - manuell im Terminal:**
 
 ```
 pip install -r requirements.txt pyinstaller
-pyinstaller --noconfirm --clean AutoCloseV8.spec
+pyinstaller --noconfirm --clean AutoCloseV7.spec
 ```
 
-Die Datei `AutoCloseV8.spec` enthaelt die komplette Build-Konfiguration
+Hinweis: Die Build-Datei behaelt aus technischen Gruenden (automatischer
+GitHub-Build) den alten Namen `AutoCloseV7.spec` - das fertige Programm
+ist trotzdem AutoCloseV8.
+
+Die Datei `AutoCloseV7.spec` enthaelt die komplette Build-Konfiguration
 (einzelne Datei, kein Konsolenfenster, alle benoetigten Module wie
 `pystray`, `keyboard` und die Windows-API-Module).
 
 Hinweise:
 
-- Die fertige `dist\AutoCloseV8.exe` ist die **einzige Datei**, die
+- Die fertige `dist\AutoCloseV7.exe` ist die **einzige Datei**, die
   weitergegeben werden muss. Sie laeuft ohne Python auf jedem
   Windows-10/11-Rechner (Tray-Icon, Autostart, Hotkey und
   Konfigurationsspeicherung funktionieren wie gewohnt).
@@ -160,9 +164,9 @@ autoclosev7/
 ├── main.py                 # Einstiegspunkt
 ├── config.json              # Standardkonfiguration
 ├── requirements.txt          # Python-Abhaengigkeiten
-├── AutoCloseV8.spec           # PyInstaller-Build-Konfiguration (.exe)
-├── build.bat                  # Ein-Klick-Build der AutoCloseV8.exe (Windows)
-├── dist/                      # Wird beim Build erstellt (enthaelt AutoCloseV8.exe)
+├── AutoCloseV7.spec           # PyInstaller-Build-Konfiguration (.exe)
+├── build.bat                  # Ein-Klick-Build der AutoCloseV7.exe (Windows)
+├── dist/                      # Wird beim Build erstellt (enthaelt AutoCloseV7.exe)
 ├── logs/                     # Wird automatisch erstellt (Logdateien)
 └── src/
     ├── paths.py               # Zentrale Pfad-Logik (Skript vs. gepackte .exe)
