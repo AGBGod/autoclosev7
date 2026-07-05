@@ -363,9 +363,18 @@ class WindowMonitor:
 
     @staticmethod
     def _terminate_proc(proc) -> None:
-        """Beendet einen Prozess sauber (terminate), notfalls erzwungen (kill)."""
-        proc.terminate()
+        """Beendet einen Prozess sauber (terminate), notfalls erzwungen (kill).
+
+        Ist der Prozess in der Zwischenzeit bereits von selbst verschwunden,
+        gilt das als Erfolg (kein Fehler fuer den Nutzer).
+        """
         try:
+            proc.terminate()
             proc.wait(timeout=2)
+        except psutil.NoSuchProcess:
+            return
         except psutil.TimeoutExpired:
-            proc.kill()
+            try:
+                proc.kill()
+            except psutil.NoSuchProcess:
+                return
