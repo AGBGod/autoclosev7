@@ -39,6 +39,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+from .admin_autostart import AdminAutostartManager
 from .autostart import AutostartManager
 from .config_manager import ConfigManager
 from .hotkey import HotkeyManager
@@ -92,6 +93,7 @@ class AutoCloseApp(tk.Tk):
         self.config_manager = ConfigManager()
         self.stats = StatsTracker()
         self.autostart_manager = AutostartManager()
+        self.admin_autostart_manager = AdminAutostartManager()
         self.hotkey_manager = HotkeyManager()
         self.updater = UpdateChecker()
 
@@ -232,6 +234,19 @@ class AutoCloseApp(tk.Tk):
         tk.Button(button_row, text="AutoClose", width=10, command=self._auto_close_now).pack(
             side="left", padx=6
         )
+
+        # --- Administrator-Option ---------------------------------------------
+        admin_row = tk.Frame(self)
+        admin_row.pack(pady=(0, 4))
+        self.admin_autostart_var = tk.BooleanVar(
+            value=self.admin_autostart_manager.is_enabled()
+        )
+        tk.Checkbutton(
+            admin_row,
+            text="Immer mit Administrator-Rechten starten (nötig für Task-Manager)",
+            variable=self.admin_autostart_var,
+            command=self._toggle_admin_autostart,
+        ).pack(side="left")
 
         # --- Statuszeile ------------------------------------------------------
         self.status_var = tk.StringVar(value="Bereit")
@@ -795,15 +810,23 @@ class AutoCloseApp(tk.Tk):
         open_restart = bool(self.open_vars["after_restart"].get())
         close_restart = bool(self.close_vars["after_restart"].get())
         want_autostart = open_restart or close_restart
-        ok = self.autostart_manager.set_enabled(want_autostart)
-        if ok:
-            self.config_manager.set("autostart_enabled", want_autostart)
-        elif want_autostart:
-            self._set_status(
-                "Hinweis: Autostart konnte nicht eingetragen werden (nur unter Windows möglich). "
-                "Die Einstellung wurde trotzdem gespeichert."
-            )
-            return
+
+        # Ist der automatische Administrator-Start aktiv, uebernimmt der geplante
+        # Task den Login-Start (mit Admin-Rechten). Dann darf hier KEIN
+        # Registry-Autostart gesetzt werden, sonst wuerde die App doppelt starten.
+        if self.config_manager.get("admin_autostart", False):
+            self.autostart_manager.disable()
+            self.config_manager.set("autostart_enabled", False)
+        else:
+            ok = self.autostart_manager.set_enabled(want_autostart)
+            if ok:
+                self.config_manager.set("autostart_enabled", want_autostart)
+            elif want_autostart:
+                self._set_status(
+                    "Hinweis: Autostart konnte nicht eingetragen werden (nur unter Windows möglich). "
+                    "Die Einstellung wurde trotzdem gespeichert."
+                )
+                return
 
         name = vars_["label"]
         parts = []
@@ -866,11 +889,35 @@ class AutoCloseApp(tk.Tk):
         launched_by_windows = "--autostart" in sys.argv
         flag = "after_restart" if launched_by_windows else "after_start"
 
+        # Konfiguration mit der Realitaet abgleichen: Wurde der geplante
+        # Administrator-Task ausserhalb der App entfernt (z. B. von Hand in der
+        # Windows-Aufgabenplanung), den gespeicherten Zustand nachfuehren -
+        # sonst bliebe der normale Autostart faelschlich unterdrueckt und ginge
+        # still verloren.
+        admin_task_exists = self.admin_autostart_manager.is_enabled()
+        if bool(self.config_manager.get("admin_autostart", False)) != admin_task_exists:
+            self.config_manager.set("admin_autostart", admin_task_exists)
+            self.admin_autostart_var.set(admin_task_exists)
+            if not admin_task_exists:
+                open_restart = bool(self.open_vars["after_restart"].get())
+                close_restart = bool(self.close_vars["after_restart"].get())
+                if (open_restart or close_restart) and self.autostart_manager.enable():
+                    self.config_manager.set("autostart_enabled", True)
+
         # Bestehenden Autostart-Eintrag beim Start auffrischen, damit er den
         # aktuellen Pfad und den --autostart-Parameter enthaelt (aeltere
         # Versionen haben den Eintrag ohne diesen Parameter geschrieben).
         if self.config_manager.get("autostart_enabled", False):
             self.autostart_manager.enable()
+
+        # Laeuft der automatische Administrator-Start und ist die App gerade
+        # erhoeht (also vom geplanten Task gestartet), den Task auffrischen,
+        # damit er den aktuellen exe-Pfad enthaelt. Nur wenn bereits erhoeht -
+        # sonst wuerde bei jedem normalen Start eine UAC-Abfrage erscheinen.
+        if self.config_manager.get("admin_autostart", False) and (
+            self.admin_autostart_manager.is_admin()
+        ):
+            self.admin_autostart_manager.enable()
 
         open_section = self.config_manager.get_auto_section("open_auto")
         close_section = self.config_manager.get_auto_section("close_auto")
@@ -964,6 +1011,62 @@ class AutoCloseApp(tk.Tk):
             self._quit_app()
         except Exception as exc:
             self._set_status(f"Neustart als Administrator fehlgeschlagen: {exc}")
+
+    def _toggle_admin_autostart(self) -> None:
+        """Schaltet den automatischen Start mit Administrator-Rechten ein/aus."""
+        want = bool(self.admin_autostart_var.get())
+
+        if sys.platform != "win32":
+            self.admin_autostart_var.set(False)
+            self._set_status("Automatischer Administrator-Start ist nur unter Windows möglich.")
+            return
+
+        if want:
+            confirmed = messagebox.askyesno(
+                "Immer als Administrator starten",
+                "AutoCloseV8 wird so eingerichtet, dass es beim Anmelden automatisch "
+                "MIT Administrator-Rechten startet.\n\n"
+                "Dadurch kannst du auch geschützte Programme wie den Task-Manager "
+                "schließen, ohne die App jedes Mal von Hand als Administrator zu starten.\n\n"
+                "Windows fragt jetzt einmal um Erlaubnis. Fortfahren?",
+                parent=self,
+            )
+            if not confirmed:
+                self.admin_autostart_var.set(False)
+                self._set_status("Einrichtung abgebrochen.")
+                return
+
+            if self.admin_autostart_manager.enable():
+                # Den normalen Registry-Autostart entfernen, damit die App nicht
+                # doppelt startet - der geplante Task uebernimmt den Login-Start.
+                self.autostart_manager.disable()
+                self.config_manager.set("admin_autostart", True)
+                self.config_manager.set("autostart_enabled", False)
+                self._set_status(
+                    "Erledigt: AutoCloseV8 startet ab jetzt automatisch mit Administrator-Rechten."
+                )
+            else:
+                self.admin_autostart_var.set(False)
+                self._set_status(
+                    "Einrichtung fehlgeschlagen oder von Windows abgelehnt. "
+                    "Bitte die Administrator-Abfrage bestätigen."
+                )
+        else:
+            if self.admin_autostart_manager.disable():
+                self.config_manager.set("admin_autostart", False)
+                # Falls "nach Neustart" gesetzt ist, den normalen (nicht erhoehten)
+                # Autostart wieder eintragen, damit die App weiterhin beim
+                # Hochfahren startet.
+                open_restart = bool(self.open_vars["after_restart"].get())
+                close_restart = bool(self.close_vars["after_restart"].get())
+                if (open_restart or close_restart) and self.autostart_manager.enable():
+                    self.config_manager.set("autostart_enabled", True)
+                self._set_status("Automatischer Administrator-Start ausgeschaltet.")
+            else:
+                self.admin_autostart_var.set(True)
+                self._set_status(
+                    "Konnte nicht ausgeschaltet werden (Administrator-Abfrage nötig)."
+                )
 
     def _refresh_status_loop(self) -> None:
         """Gleicht periodisch die Anzeige mit dem echten Zustand ab (Tray/Hotkey)."""

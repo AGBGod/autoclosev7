@@ -38,6 +38,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "check_interval_value": 2.0,
     "check_interval_unit": "s",
     "autostart_enabled": False,
+    "admin_autostart": False,
     "hotkey": "ctrl+alt+p",
     "monitoring_enabled_on_start": False,
     "close_method": "graceful",
