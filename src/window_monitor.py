@@ -162,7 +162,15 @@ class WindowMonitor:
         process_names: Optional[list] = None,
     ) -> int:
         """
-        Ein einzelner Durchlauf: alle Fenster pruefen und Treffer schliessen.
+        Ein einzelner Durchlauf: Ziele finden und schliessen.
+
+        Es gibt zwei Arten von Zielen:
+          - Fenstertitel: werden ueber die sichtbaren Fenster gesucht (wie im
+            Task-Manager unter "Anwendungen").
+          - Prozessnamen (z. B. 'chrome.exe'): werden ueber ALLE laufenden
+            Prozesse gesucht - auch solche ohne sichtbares Fenster, die im
+            Hintergrund oder im Infobereich (Tray) laufen.
+
         Gibt die Anzahl der geschlossenen Elemente zurueck.
         """
         if window_titles is None:
@@ -175,40 +183,62 @@ class WindowMonitor:
         if not window_titles and not process_names:
             return 0  # Nichts zu tun - spart CPU-Zyklen.
 
-        matches = []
+        # Alle sichtbaren Fenster einmalig einsammeln (hwnd, Titel, PID).
+        # Diese Liste wird sowohl fuer Titel-Treffer als auch fuer ein sanftes
+        # Schliessen von Prozessen mit Fenster verwendet.
+        windows = []
 
         def enum_handler(hwnd, _extra):
-            if not win32gui.IsWindowVisible(hwnd):
-                return
-            title = win32gui.GetWindowText(hwnd)
-            if not title:
-                return
-
-            title_match = any(needle in title.lower() for needle in window_titles)
-            process_match = False
-            process_label = None
-
-            if process_names:
-                try:
-                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                    proc = psutil.Process(pid)
-                    proc_name = proc.name().lower()
-                    if proc_name in process_names:
-                        process_match = True
-                        process_label = proc_name
-                except Exception:
-                    # Prozess evtl. bereits beendet oder kein Zugriff moeglich - ignorieren.
-                    pass
-
-            if title_match or process_match:
-                matches.append((hwnd, title, process_label))
+            try:
+                if not win32gui.IsWindowVisible(hwnd):
+                    return
+                title = win32gui.GetWindowText(hwnd)
+                if not title:
+                    return
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                windows.append((hwnd, title, pid))
+            except Exception:
+                # Einzelne Fenster koennen waehrend der Aufzaehlung verschwinden.
+                pass
 
         win32gui.EnumWindows(enum_handler, None)
 
+        handled_pids = set()
         closed = 0
-        for hwnd, title, process_label in matches:
-            if self._close_window(hwnd, title, process_label):
-                closed += 1
+
+        # 1) Fenstertitel-Treffer: jedes passende sichtbare Fenster schliessen.
+        if window_titles:
+            for hwnd, title, pid in windows:
+                if any(needle in title.lower() for needle in window_titles):
+                    if self._close_window(hwnd, title, None):
+                        closed += 1
+                        if pid is not None:
+                            handled_pids.add(pid)
+
+        # 2) Prozessnamen-Treffer: ueber ALLE laufenden Prozesse suchen, damit
+        #    auch Programme ohne Fenster (Hintergrund/Tray) geschlossen werden.
+        if process_names:
+            pid_windows: dict = {}
+            for hwnd, _title, pid in windows:
+                if pid is not None:
+                    pid_windows.setdefault(pid, []).append(hwnd)
+
+            for proc in psutil.process_iter(["name", "pid"]):
+                try:
+                    name = (proc.info.get("name") or "").lower()
+                    pid = proc.info.get("pid")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+                except Exception:
+                    continue
+
+                if not name or name not in process_names or pid in handled_pids:
+                    continue
+
+                if self._close_process(proc, name, pid_windows.get(pid, [])):
+                    closed += 1
+                    handled_pids.add(pid)
+
         return closed
 
     @staticmethod
@@ -280,13 +310,62 @@ class WindowMonitor:
                 self._on_error(message)
             return False
 
-    @staticmethod
-    def _terminate_by_hwnd(hwnd: int) -> None:
+    def _close_process(self, proc, label: str, hwnds: list) -> bool:
+        """
+        Schliesst einen kompletten Prozess (anhand seines Namens gefunden) -
+        auch dann, wenn er kein sichtbares Fenster hat (Hintergrund/Tray).
+
+        Ablauf:
+          1. Sanft: hat der Prozess sichtbare Fenster und ist der sanfte Modus
+             aktiv, werden diese per WM_CLOSE geschlossen.
+          2. Sonst / ohne Fenster: Prozess beenden (terminate), notfalls
+             erzwingen (kill).
+        Laeuft das Ziel mit Administrator-Rechten, wird ein Hinweis gemeldet.
+        """
+        close_method = self._config.get("close_method", "graceful")
+
+        try:
+            if close_method == "graceful" and hwnds:
+                posted = False
+                for hwnd in hwnds:
+                    try:
+                        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                        posted = True
+                    except Exception as exc:
+                        if self._is_access_denied(exc):
+                            raise
+                if not posted:
+                    # Fenster verschwanden zwischenzeitlich -> Prozess beenden.
+                    self._terminate_proc(proc)
+            else:
+                self._terminate_proc(proc)
+
+            logger.info("Geschlossen: %s", label)
+            self._stats.record_closed(label, kind="process")
+            if self._on_item_closed:
+                self._on_item_closed(label, "process")
+            return True
+
+        except Exception as exc:
+            if self._is_access_denied(exc):
+                self._report_admin_needed(label)
+                return False
+            message = f"Konnte '{label}' nicht schliessen: {exc}"
+            logger.error(message)
+            if self._on_error:
+                self._on_error(message)
+            return False
+
+    def _terminate_by_hwnd(self, hwnd: int) -> None:
         """Beendet den Prozess hinter einem Fenster (terminate, notfalls kill)."""
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
-        proc = psutil.Process(pid)
+        self._terminate_proc(psutil.Process(pid))
+
+    @staticmethod
+    def _terminate_proc(proc) -> None:
+        """Beendet einen Prozess sauber (terminate), notfalls erzwungen (kill)."""
+        proc.terminate()
         try:
-            proc.terminate()
             proc.wait(timeout=2)
         except psutil.TimeoutExpired:
             proc.kill()
