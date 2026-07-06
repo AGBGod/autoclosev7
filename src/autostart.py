@@ -23,9 +23,9 @@ logger = logging.getLogger("AutoCloseV9.0.Autostart")
 
 REGISTRY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "AutoCloseV9.0"
-# Alter Eintragsname aus frueheren Versionen - wird automatisch entfernt,
+# Alte Eintragsnamen aus frueheren Versionen - werden automatisch entfernt,
 # damit nicht zwei Versionen gleichzeitig starten.
-LEGACY_APP_NAMES = ("AutoCloseV7",)
+LEGACY_APP_NAMES = ("AutoCloseV8", "AutoCloseV7")
 
 
 class AutostartManager:
