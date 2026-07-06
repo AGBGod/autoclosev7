@@ -1,4 +1,4 @@
-# AutoCloseV8 – Abhaengigkeiten (nur unter Windows lauffaehig)
+# AutoCloseV9.0 – Abhaengigkeiten (nur unter Windows lauffaehig)
 #
 # Installation:
 #   pip install -r requirements.txt

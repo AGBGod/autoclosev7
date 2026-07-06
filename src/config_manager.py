@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from src.paths import get_config_path
 
-logger = logging.getLogger("AutoCloseV8.Config")
+logger = logging.getLogger("AutoCloseV9.0.Config")
 
 # Standardwerte fuer eine Automatik-Sektion (OPEN bzw. CLOSE).
 DEFAULT_AUTO_SECTION: Dict[str, Any] = {
@@ -43,6 +43,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "monitoring_enabled_on_start": False,
     "close_method": "graceful",
     "minimize_to_tray_on_close": True,
+    # Verifikation des sanften Schliessens (WM_CLOSE): wie lange insgesamt darauf
+    # gewartet wird, dass ein Fenster/Prozess wirklich verschwindet, und in
+    # welchen Schritten geprueft wird. Die Wartezeit gilt UEBERLAPPEND fuer alle
+    # Ziele eines Durchlaufs - sie summiert sich also nicht pro Programm auf.
+    "close_verify_timeout_seconds": 1.0,
+    "close_verify_step_seconds": 0.1,
 }
 
 
@@ -56,7 +62,7 @@ class ConfigManager:
 
     def __init__(self, config_path: Optional[str] = None):
         # Standard: fester, beschreibbarer Pfad (unabhaengig vom Arbeitsverzeichnis).
-        # Als .exe: %APPDATA%\AutoCloseV8\config.json - als Skript: Projektordner.
+        # Als .exe: %APPDATA%\AutoCloseV9.0\config.json - als Skript: Projektordner.
         self._config_path = config_path or get_config_path()
         self._lock = threading.RLock()
         self._data: Dict[str, Any] = {}

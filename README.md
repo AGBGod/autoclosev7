@@ -1,10 +1,10 @@
-# AutoCloseV8
+# AutoCloseV9.0
 
 Ein Windows-Programm, das automatisch bestimmte Pop-up-Fenster oder Anwendungen
 erkennt und schliesst. Mit modernem Dark-Mode-Interface, Tray-Icon, Autostart,
 globalem Hotkey und einfacher Statistik.
 
-> **Wichtig:** AutoCloseV8 nutzt Windows-spezifische Funktionen (Fenster-API,
+> **Wichtig:** AutoCloseV9.0 nutzt Windows-spezifische Funktionen (Fenster-API,
 > Registry, Tray-Icon) und funktioniert daher **nur unter Windows** (10/11).
 
 ## Funktionsumfang
@@ -26,19 +26,19 @@ globalem Hotkey und einfacher Statistik.
 ## Schnellstart: Einfach die .exe starten (empfohlen)
 
 **Es ist keine Python-Installation noetig.** Einfach die Datei
-`AutoCloseV8.exe` per Doppelklick starten - fertig.
+`AutoCloseV9.0.exe` per Doppelklick starten - fertig.
 
 - Die .exe ist eigenstaendig und kann beliebig kopiert werden (Desktop,
   USB-Stick, anderer Rechner mit Windows 10/11).
 - Einstellungen und Logs werden automatisch unter
-  `%APPDATA%\AutoCloseV8` gespeichert (z. B.
-  `C:\Users\<Name>\AppData\Roaming\AutoCloseV8`), damit sie unabhaengig vom
+  `%APPDATA%\AutoCloseV9.0` gespeichert (z. B.
+  `C:\Users\<Name>\AppData\Roaming\AutoCloseV9.0`), damit sie unabhaengig vom
   Speicherort der .exe erhalten bleiben.
 - Beim ersten Start meldet sich ggf. der Windows SmartScreen-Filter
   ("Unbekannter Herausgeber"). In dem Fall auf **"Weitere Informationen" →
   "Trotzdem ausfuehren"** klicken.
 
-Falls noch keine `AutoCloseV8.exe` vorliegt, siehe Abschnitt
+Falls noch keine `AutoCloseV9.0.exe` vorliegt, siehe Abschnitt
 [".exe selbst bauen"](#exe-selbst-bauen-fuer-entwickler) weiter unten.
 
 ## Installation aus dem Quellcode (nur fuer Entwickler)
@@ -48,7 +48,7 @@ Falls noch keine `AutoCloseV8.exe` vorliegt, siehe Abschnitt
    die Option "Add Python to PATH" aktivieren.
 
 2. **Projekt herunterladen** und in einen beliebigen Ordner entpacken, z. B.
-   `C:\Tools\AutoCloseV8`.
+   `C:\Tools\AutoCloseV9.0`.
 
 3. **Abhaengigkeiten installieren** – in diesem Ordner ein Terminal (PowerShell
    oder CMD) oeffnen und ausfuehren:
@@ -61,7 +61,7 @@ Falls noch keine `AutoCloseV8.exe` vorliegt, siehe Abschnitt
 
 1. Anwendung starten:
 
-   - **Als .exe:** Doppelklick auf `AutoCloseV8.exe`.
+   - **Als .exe:** Doppelklick auf `AutoCloseV9.0.exe`.
    - **Aus dem Quellcode:**
 
      ```
@@ -77,7 +77,7 @@ Falls noch keine `AutoCloseV8.exe` vorliegt, siehe Abschnitt
    - Das **Pruefintervall** (in Sekunden) bestimmt, wie oft nach passenden
      Fenstern gesucht wird. Kleinere Werte reagieren schneller, groessere Werte
      schonen CPU/RAM.
-   - Ueber die Checkbox **"Mit Windows starten"** wird AutoCloseV8 automatisch
+   - Ueber die Checkbox **"Mit Windows starten"** wird AutoCloseV9.0 automatisch
      beim Windows-Start mitgestartet.
    - Der Standard-Hotkey `Strg + Alt + P` schaltet die Ueberwachung jederzeit
      ein oder aus, auch wenn das Fenster nicht im Vordergrund ist (Hotkey in
@@ -91,7 +91,7 @@ Falls noch keine `AutoCloseV8.exe` vorliegt, siehe Abschnitt
 
 ## .exe selbst bauen (fuer Entwickler)
 
-Die eigenstaendige `AutoCloseV8.exe` wird mit [PyInstaller](https://pyinstaller.org)
+Die eigenstaendige `AutoCloseV9.0.exe` wird mit [PyInstaller](https://pyinstaller.org)
 erstellt. Der Build muss **auf einem Windows-Rechner** ausgefuehrt werden
 (PyInstaller kann keine Windows-.exe unter Linux/macOS erzeugen).
 
@@ -112,7 +112,7 @@ pyinstaller --noconfirm --clean AutoCloseV7.spec
 
 Hinweis: Die Build-Datei behaelt aus technischen Gruenden (automatischer
 GitHub-Build) den alten Namen `AutoCloseV7.spec` - das fertige Programm
-ist trotzdem AutoCloseV8.
+ist trotzdem AutoCloseV9.0.
 
 Die Datei `AutoCloseV7.spec` enthaelt die komplette Build-Konfiguration
 (einzelne Datei, kein Konsolenfenster, alle benoetigten Module wie
@@ -125,7 +125,7 @@ Hinweise:
   Windows-10/11-Rechner (Tray-Icon, Autostart, Hotkey und
   Konfigurationsspeicherung funktionieren wie gewohnt).
 - Als .exe speichert die Anwendung `config.json` und `logs\` unter
-  `%APPDATA%\AutoCloseV8` (beim Start aus dem Quellcode wie bisher im
+  `%APPDATA%\AutoCloseV9.0` (beim Start aus dem Quellcode wie bisher im
   Projektordner). So funktioniert auch der Windows-Autostart zuverlaessig,
   egal von wo die .exe gestartet wird.
 - Der Autostart-Eintrag in der Registry zeigt automatisch auf die .exe
@@ -199,7 +199,7 @@ autoclosev7/
   oder eine Ausnahme hinzufuegen.
 - Detaillierte Fehlermeldungen finden sich immer in der Logdatei
   `autoclosev7.log`:
-  - **Als .exe:** `%APPDATA%\AutoCloseV8\logs\autoclosev7.log`
+  - **Als .exe:** `%APPDATA%\AutoCloseV9.0\logs\autoclosev7.log`
   - **Aus dem Quellcode:** `logs/autoclosev7.log` im Projektordner
 
 ## Geplante Erweiterungen (vorbereitet, noch nicht aktiv)

@@ -1,7 +1,7 @@
 """
 logger_setup.py
 ----------------
-Zentrale Logging-Konfiguration fuer AutoCloseV8.
+Zentrale Logging-Konfiguration fuer AutoCloseV9.0.
 Schreibt Logeintraege sowohl in eine rotierende Logdatei als auch (optional) in die Konsole.
 """
 
@@ -21,7 +21,7 @@ def setup_logging(level: int = logging.INFO, console: bool = True) -> logging.Lo
     """
     log_file = os.path.join(get_log_dir(), "autoclosev7.log")
 
-    logger = logging.getLogger("AutoCloseV8")
+    logger = logging.getLogger("AutoCloseV9.0")
     logger.setLevel(level)
     logger.propagate = False
 

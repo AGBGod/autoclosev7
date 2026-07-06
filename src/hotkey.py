@@ -16,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover - tritt nur ausserhalb von Windows auf
     PLATFORM_SUPPORTED = False
 
-logger = logging.getLogger("AutoCloseV8.Hotkey")
+logger = logging.getLogger("AutoCloseV9.0.Hotkey")
 
 
 class HotkeyManager:

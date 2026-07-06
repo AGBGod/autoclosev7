@@ -19,17 +19,17 @@ try:
 except ImportError:  # pragma: no cover - tritt nur ausserhalb von Windows auf
     PLATFORM_SUPPORTED = False
 
-logger = logging.getLogger("AutoCloseV8.Autostart")
+logger = logging.getLogger("AutoCloseV9.0.Autostart")
 
 REGISTRY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-APP_NAME = "AutoCloseV8"
+APP_NAME = "AutoCloseV9.0"
 # Alter Eintragsname aus frueheren Versionen - wird automatisch entfernt,
 # damit nicht zwei Versionen gleichzeitig starten.
 LEGACY_APP_NAMES = ("AutoCloseV7",)
 
 
 class AutostartManager:
-    """Aktiviert/deaktiviert den automatischen Start von AutoCloseV8 mit Windows."""
+    """Aktiviert/deaktiviert den automatischen Start von AutoCloseV9.0 mit Windows."""
 
     @staticmethod
     def _get_executable_command() -> str:
@@ -78,7 +78,7 @@ class AutostartManager:
                 logger.debug("Alter Eintrag '%s' nicht entfernbar: %s", legacy_name, exc)
 
     def enable(self) -> bool:
-        """Traegt AutoCloseV8 in den Windows-Autostart ein."""
+        """Traegt AutoCloseV9.0 in den Windows-Autostart ein."""
         if not PLATFORM_SUPPORTED:
             logger.warning("Autostart wird nur unter Windows unterstuetzt.")
             return False
@@ -96,7 +96,7 @@ class AutostartManager:
             return False
 
     def disable(self) -> bool:
-        """Entfernt AutoCloseV8 aus dem Windows-Autostart."""
+        """Entfernt AutoCloseV9.0 aus dem Windows-Autostart."""
         if not PLATFORM_SUPPORTED:
             return False
         try:

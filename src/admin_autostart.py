@@ -1,7 +1,7 @@
 """
 admin_autostart.py
 -------------------
-Richtet AutoCloseV8 so ein, dass es beim Anmelden automatisch MIT
+Richtet AutoCloseV9.0 so ein, dass es beim Anmelden automatisch MIT
 Administrator-Rechten startet - ohne dass der Nutzer jedes Mal
 "Als Administrator ausfuehren" anklicken oder die UAC-Abfrage bestaetigen muss.
 
@@ -36,9 +36,9 @@ PLATFORM_SUPPORTED = sys.platform == "win32"
 # aufblitzt (die App laeuft als Fenster-Programm ohne Konsole).
 _CREATE_NO_WINDOW = 0x08000000
 
-logger = logging.getLogger("AutoCloseV8.AdminAutostart")
+logger = logging.getLogger("AutoCloseV9.0.AdminAutostart")
 
-TASK_NAME = "AutoCloseV8"
+TASK_NAME = "AutoCloseV9.0"
 
 
 class AdminAutostartManager:
@@ -88,7 +88,7 @@ class AdminAutostartManager:
 
         xml = self._build_task_xml()
         # schtasks erwartet die XML-Datei in UTF-16.
-        tmp_path = os.path.join(tempfile.gettempdir(), "autoclosev8_task.xml")
+        tmp_path = os.path.join(tempfile.gettempdir(), "autoclosev9_task.xml")
         try:
             with open(tmp_path, "w", encoding="utf-16") as f:
                 f.write(xml)
@@ -237,7 +237,7 @@ class AdminAutostartManager:
             '<Task version="1.2" '
             'xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
             "  <RegistrationInfo>\n"
-            "    <Description>Startet AutoCloseV8 beim Anmelden mit "
+            "    <Description>Startet AutoCloseV9.0 beim Anmelden mit "
             "Administrator-Rechten.</Description>\n"
             "  </RegistrationInfo>\n"
             "  <Triggers>\n"

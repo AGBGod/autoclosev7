@@ -1,7 +1,7 @@
 """
 main.py
 --------
-Einstiegspunkt fuer AutoCloseV8.
+Einstiegspunkt fuer AutoCloseV9.0.
 
 Startet das Logging, faengt unerwartete Fehler ab und oeffnet die grafische
 Oberflaeche. Nur unter Windows voll lauffaehig (siehe README.md).
@@ -22,11 +22,11 @@ from src.logger_setup import setup_logging
 def main() -> int:
     """Startet die Anwendung und liefert den Exit-Code zurueck."""
     logger = setup_logging(level=logging.INFO)
-    logger.info("AutoCloseV8 wird gestartet...")
+    logger.info("AutoCloseV9.0 wird gestartet...")
 
     if sys.platform != "win32":
         logger.warning(
-            "AutoCloseV8 wurde fuer Windows entwickelt. Auf diesem Betriebssystem "
+            "AutoCloseV9.0 wurde fuer Windows entwickelt. Auf diesem Betriebssystem "
             "funktionieren Fenstererkennung, Tray-Icon, Autostart und Hotkey nicht."
         )
 
@@ -40,7 +40,7 @@ def main() -> int:
             root = tk.Tk()
             root.withdraw()
             messagebox.showerror(
-                "AutoCloseV8 - Fehler",
+                "AutoCloseV9.0 - Fehler",
                 f"Die Anwendung konnte nicht gestartet werden:\n\n{exc}\n\n"
                 "Details findest du in logs/autoclosev7.log.",
             )

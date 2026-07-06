@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-logger = logging.getLogger("AutoCloseV8.Updater")
+logger = logging.getLogger("AutoCloseV9.0.Updater")
 
 CURRENT_VERSION = "1.0.0"
 

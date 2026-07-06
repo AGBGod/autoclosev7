@@ -1,7 +1,7 @@
 """
 gui.py
 -------
-Grafische Benutzeroberflaeche (GUI) von AutoCloseV8 im klassischen Windows-Look
+Grafische Benutzeroberflaeche (GUI) von AutoCloseV9.0 im klassischen Windows-Look
 (angelehnt an AutoCloseV4).
 
 Aufbau:
@@ -55,7 +55,7 @@ from .tray import TrayIcon
 from .updater import UpdateChecker
 from .window_monitor import PLATFORM_SUPPORTED, WindowMonitor
 
-logger = logging.getLogger("AutoCloseV8.GUI")
+logger = logging.getLogger("AutoCloseV9.0.GUI")
 
 # Umrechnungsfaktoren der Intervall-Einheiten in Sekunden.
 UNIT_FACTORS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
@@ -78,7 +78,7 @@ class AutoCloseApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("AutoCloseV8")
+        self.title("AutoCloseV9.0")
         self.geometry("760x600")
         self.minsize(640, 520)
 
@@ -103,6 +103,8 @@ class AutoCloseApp(tk.Tk):
             on_item_closed=self._on_item_closed,
             on_error=self._on_monitor_error,
             on_admin_needed=self._on_admin_needed,
+            on_not_closed=self._on_not_closed,
+            on_not_closed_summary=self._on_not_closed_summary,
         )
         self.opener = ProgramOpener(
             config=self.config_manager,
@@ -253,6 +255,23 @@ class AutoCloseApp(tk.Tk):
         tk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken").pack(
             fill="x", side="bottom"
         )
+
+        # --- Zusammenfassung: nicht geschlossene Programme ---------------------
+        # Kleines Panel direkt ueber der Statuszeile. Es zeigt nach einem
+        # AutoClose-Durchlauf ALLE Programme, die nicht geschlossen werden
+        # konnten (z. B. wegen einer "Speichern?"-Rueckfrage) - nicht nur das
+        # zuletzt gemeldete. Es bleibt versteckt, solange es nichts zu melden
+        # gibt, und aktualisiert sich beim naechsten Durchlauf.
+        self.not_closed_frame = tk.Frame(self, relief="groove", borderwidth=1)
+        self.not_closed_var = tk.StringVar(value="")
+        tk.Label(
+            self.not_closed_frame,
+            textvariable=self.not_closed_var,
+            anchor="w",
+            justify="left",
+            fg="#8a3b00",
+        ).pack(fill="x", padx=6, pady=4)
+        # Vorerst nicht anzeigen (pack erfolgt erst, wenn es etwas zu melden gibt).
 
         self._reload_lists()
 
@@ -963,6 +982,49 @@ class AutoCloseApp(tk.Tk):
         """Wird von den Automatik-Threads bei einem Fehler aufgerufen."""
         self._run_on_ui_thread(lambda: self._set_status(f"Fehler: {message}"))
 
+    def _on_not_closed(self, label: str) -> None:
+        """
+        Ein Programm hat nach einem sanften Schliess-Versuch nicht reagiert
+        (z. B. weil eine "Speichern?"-Rueckfrage offen ist). Es wurde nicht
+        gezaehlt - der Nutzer bekommt hier einen klaren Hinweis.
+        """
+        self._run_on_ui_thread(
+            lambda: self._set_status(
+                f"'{label}' wartet auf eine Rückfrage und wurde nicht geschlossen."
+            )
+        )
+
+    def _on_not_closed_summary(self, labels: list) -> None:
+        """
+        Zusammenfassung eines kompletten AutoClose-Durchlaufs: die vollstaendige
+        Liste aller Programme, die nicht geschlossen werden konnten. Wird bei
+        jedem Durchlauf gemeldet (auch leer), damit das Panel aktualisiert wird
+        bzw. verschwindet. Laeuft aus dem Monitor-Thread - deshalb ueber die
+        UI-Warteschlange.
+        """
+        self._run_on_ui_thread(lambda: self._update_not_closed_panel(list(labels)))
+
+    def _update_not_closed_panel(self, labels: list) -> None:
+        """Aktualisiert das Panel mit nicht geschlossenen Programmen (im GUI-Thread)."""
+        if not labels:
+            # Nichts offen geblieben - Panel ausblenden.
+            self.not_closed_var.set("")
+            self.not_closed_frame.pack_forget()
+            return
+
+        if len(labels) == 1:
+            header = "1 Programm wurde nicht geschlossen (wartet auf eine Rückfrage):"
+        else:
+            header = (
+                f"{len(labels)} Programme wurden nicht geschlossen "
+                "(warten auf eine Rückfrage):"
+            )
+        body = "\n".join(f"  • {label}" for label in labels)
+        self.not_closed_var.set(f"{header}\n{body}")
+        # Direkt ueber der Statuszeile einblenden (nur einmal packen).
+        if not self.not_closed_frame.winfo_ismapped():
+            self.not_closed_frame.pack(fill="x", side="bottom", padx=8, pady=(0, 2))
+
     def _on_admin_needed(self, label: str) -> None:
         """
         Ein Ziel (z. B. der Task-Manager) laeuft mit Administrator-Rechten und
@@ -971,7 +1033,7 @@ class AutoCloseApp(tk.Tk):
         self._run_on_ui_thread(lambda: self._ask_restart_as_admin(label))
 
     def _ask_restart_as_admin(self, label: str) -> None:
-        """Fragt den Nutzer, ob AutoCloseV8 als Administrator neu starten soll."""
+        """Fragt den Nutzer, ob AutoCloseV9.0 als Administrator neu starten soll."""
         self._set_status(
             f"'{label}' benötigt Administrator-Rechte - Neustart als Administrator nötig."
         )
@@ -980,9 +1042,9 @@ class AutoCloseApp(tk.Tk):
         answer = messagebox.askyesno(
             "Administrator-Rechte benötigt",
             f"'{label}' läuft mit Administrator-Rechten (z. B. der Task-Manager).\n\n"
-            "AutoCloseV8 kann solche Programme nur schließen, wenn es selbst als "
+            "AutoCloseV9.0 kann solche Programme nur schließen, wenn es selbst als "
             "Administrator läuft.\n\n"
-            "AutoCloseV8 jetzt mit Administrator-Rechten neu starten?\n"
+            "AutoCloseV9.0 jetzt mit Administrator-Rechten neu starten?\n"
             "(Windows fragt danach einmal um Erlaubnis.)",
             parent=self,
         )
@@ -1024,7 +1086,7 @@ class AutoCloseApp(tk.Tk):
         if want:
             confirmed = messagebox.askyesno(
                 "Immer als Administrator starten",
-                "AutoCloseV8 wird so eingerichtet, dass es beim Anmelden automatisch "
+                "AutoCloseV9.0 wird so eingerichtet, dass es beim Anmelden automatisch "
                 "MIT Administrator-Rechten startet.\n\n"
                 "Dadurch kannst du auch geschützte Programme wie den Task-Manager "
                 "schließen, ohne die App jedes Mal von Hand als Administrator zu starten.\n\n"
@@ -1043,7 +1105,7 @@ class AutoCloseApp(tk.Tk):
                 self.config_manager.set("admin_autostart", True)
                 self.config_manager.set("autostart_enabled", False)
                 self._set_status(
-                    "Erledigt: AutoCloseV8 startet ab jetzt automatisch mit Administrator-Rechten."
+                    "Erledigt: AutoCloseV9.0 startet ab jetzt automatisch mit Administrator-Rechten."
                 )
             else:
                 self.admin_autostart_var.set(False)

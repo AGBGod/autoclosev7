@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover - tritt nur ausserhalb von Windows auf
     PSUTIL_AVAILABLE = False
 
-logger = logging.getLogger("AutoCloseV8.Opener")
+logger = logging.getLogger("AutoCloseV9.0.Opener")
 
 
 class ProgramOpener:
