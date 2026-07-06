@@ -938,6 +938,10 @@ class AutoCloseApp(tk.Tk):
         ):
             self.admin_autostart_manager.enable()
 
+        # Alte geplante Tasks frueherer Versionen entfernen, falls die App
+        # gerade ohnehin erhoeht laeuft (kostet dann keine UAC-Abfrage).
+        self.admin_autostart_manager.remove_legacy_tasks(allow_uac=False)
+
         open_section = self.config_manager.get_auto_section("open_auto")
         close_section = self.config_manager.get_auto_section("close_auto")
 

@@ -39,6 +39,10 @@ _CREATE_NO_WINDOW = 0x08000000
 logger = logging.getLogger("AutoCloseV9.0.AdminAutostart")
 
 TASK_NAME = "AutoCloseV9.0"
+# Namen geplanter Tasks aus frueheren Versionen - werden beim Umstellen des
+# Administrator-Starts automatisch entfernt, damit nach einem Upgrade nicht
+# zwei Versionen gleichzeitig erhoeht starten.
+LEGACY_TASK_NAMES = ("AutoCloseV8",)
 
 
 class AdminAutostartManager:
@@ -63,9 +67,14 @@ class AdminAutostartManager:
         """Prueft, ob der geplante Task bereits vorhanden ist."""
         if not PLATFORM_SUPPORTED:
             return False
+        return self._task_exists(TASK_NAME)
+
+    @staticmethod
+    def _task_exists(name: str) -> bool:
+        """Prueft, ob ein geplanter Task mit dem gegebenen Namen existiert."""
         try:
             result = subprocess.run(
-                ["schtasks", "/Query", "/TN", TASK_NAME],
+                ["schtasks", "/Query", "/TN", name],
                 capture_output=True,
                 creationflags=_CREATE_NO_WINDOW,
             )
@@ -106,18 +115,41 @@ class AdminAutostartManager:
 
         if ok:
             logger.info("Geplanter Task fuer Administrator-Start angelegt.")
+            self.remove_legacy_tasks(allow_uac=True)
         return ok
 
     def disable(self) -> bool:
         """Entfernt den geplanten Task wieder. Liefert True bei Erfolg."""
         if not PLATFORM_SUPPORTED:
             return False
-        if not self.is_enabled():
-            return True  # War bereits deaktiviert.
-        ok = self._run_schtasks(["/Delete", "/TN", TASK_NAME, "/F"])
-        if ok:
-            logger.info("Geplanter Task fuer Administrator-Start entfernt.")
+        ok = True
+        if self.is_enabled():
+            ok = self._run_schtasks(["/Delete", "/TN", TASK_NAME, "/F"])
+            if ok:
+                logger.info("Geplanter Task fuer Administrator-Start entfernt.")
+        # Auch geplante Tasks frueherer Versionen entfernen.
+        self.remove_legacy_tasks(allow_uac=True)
         return ok
+
+    def remove_legacy_tasks(self, allow_uac: bool = False) -> None:
+        """
+        Entfernt geplante Tasks aelterer Versionen (z. B. AutoCloseV8), damit
+        nach einem Upgrade nicht zwei Versionen gleichzeitig erhoeht starten.
+
+        allow_uac=False: nur loeschen, wenn die App ohnehin schon erhoeht laeuft
+        (dann ohne zusaetzliche UAC-Abfrage). allow_uac=True: bei Bedarf einmalig
+        per UAC erhoehen - das passiert nur, wenn wirklich noch ein alter Task
+        vorhanden ist.
+        """
+        if not PLATFORM_SUPPORTED:
+            return
+        for name in LEGACY_TASK_NAMES:
+            if not self._task_exists(name):
+                continue
+            if not allow_uac and not self.is_admin():
+                continue
+            if self._run_schtasks(["/Delete", "/TN", name, "/F"]):
+                logger.info("Alten geplanten Task entfernt: %s", name)
 
     # ------------------------------------------------------------------
     # Interne Helfer
